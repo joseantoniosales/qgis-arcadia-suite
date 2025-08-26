@@ -4,10 +4,12 @@ from qgis.PyQt.QtCore import QCoreApplication
 from qgis.PyQt.QtWidgets import QAction
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import QgsApplication, QgsProcessingProvider
+import os
 
-# Importamos los algoritmos de procesamiento y diálogos
-# Importamos los algoritmos de procesamiento y diálogos
+# Importamos los algoritmos de procesamiento
 # Importamos las clases de nuestras herramientas y diálogos
+from .launcher_launcher import WFSLauncherAlgorithm
+from .configurator_launcher import WFSSourceManagerAlgorithm
 from .downloader_tool import WFSDownloaderTool
 from .manager_dialog import WFSSourceManager
 from .launcher_dialog import WFSLauncherDialog
@@ -72,8 +74,8 @@ class WFSProcessingProvider(QgsProcessingProvider):
         super().__init__()
 
     def loadAlgorithms(self, *args, **kwargs):
+         self.addAlgorithm(WFSSourceManagerAlgorithm())
          self.addAlgorithm(WFSDownloaderTool())
-         self.addAlgorithm(WFSLauncherAlgorithm())
          self.addAlgorithm(WFSSourceManagerAlgorithm())
 
     def id(self, *args, **kwargs):

@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
-import os, configparser, requests, xml.etree.ElementTree as ET, json, webbrowser, tempfile
+import os
+import configparser
+import requests
+import xml.etree.ElementTree as ET
+import json
+import webbrowser
+import tempfile
 from qgis.PyQt.QtWidgets import *
 from qgis.PyQt.QtCore import Qt, QUrl, QTimer
 from qgis.PyQt.QtNetwork import QNetworkRequest
 from qgis.core import QgsApplication, QgsNetworkAccessManager
 from qgis import processing
 from datetime import datetime, timezone
-from .setting_utils import get_settings_file_path
+from .settings_utils import get_settings_file_path
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None):

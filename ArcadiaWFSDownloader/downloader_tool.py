@@ -41,6 +41,8 @@ class WFSDownloaderTool(QgsProcessingAlgorithm):
     def displayName(self): return self.tr('Descargador WFS Avanzado')
     def group(self): return self.tr('Arcadia Suite')
     def groupId(self): return 'arcadia_suite'
+    def subGroup(self): return self.tr('Advanced WFS Downloader')
+    def subGroupId(self): return 'advanced_wfs_downloader'
 
     def initAlgorithm(self, config=None):
         self.shared_path_config = {'styles': '', 'cache': ''}

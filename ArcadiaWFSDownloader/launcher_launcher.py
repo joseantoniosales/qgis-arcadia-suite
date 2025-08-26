@@ -22,6 +22,12 @@ class WFSLauncherAlgorithm(QgsProcessingAlgorithm):
     def groupId(self):
         return 'arcadia_suite'
 
+    def subGroup(self):
+        return self.tr('Advanced WFS Downloader')
+
+    def subGroupId(self):
+        return 'advanced_wfs_downloader'
+
     def shortHelpString(self):
         return self.tr('Lanza el diálogo de selección de servidor WFS y capas.')
 

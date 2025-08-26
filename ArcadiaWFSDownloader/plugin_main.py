@@ -13,11 +13,15 @@ from .configurator_dialog import ConfiguratorDialog
 
 class ArcadiaWFSDownloaderPlugin:
     def __init__(self, iface):
-
         self.iface = iface
         self.provider = None
         self.actions = []
-        self.menu = QCoreApplication.translate("ArcadiaSuitePlugin", "&Arcadia Suite")
+        
+        # Definir la jerarquía de menús
+        self.menu_arcadia = QCoreApplication.translate("ArcadiaSuitePlugin", "&Arcadia Suite")
+        self.menu_wfs = self.menu_arcadia + "/" + QCoreApplication.translate("ArcadiaSuitePlugin", "Advanced WFS Downloader")
+        
+        # Crear la barra de herramientas
         self.toolbar = self.iface.addToolBar("Arcadia Suite Toolbar")
         self.toolbar.setObjectName("ArcadiaSuiteToolbar")
         
@@ -41,17 +45,26 @@ class ArcadiaWFSDownloaderPlugin:
         config_action = QAction("Configurador de descarga", self.iface.mainWindow())
         config_action.triggered.connect(self.run_configurator)
         
+        # Añadir acciones a la barra de herramientas
         self.toolbar.addAction(launcher_action)
-        self.iface.addPluginToMenu(self.menu, launcher_action)
-        self.iface.addPluginToMenu(self.menu, manager_action)
-        self.iface.addPluginToMenu(self.menu, config_action)
-
+        
+        # Añadir acciones al menú
+        self.iface.addPluginToMenu(self.menu_wfs, launcher_action)
+        self.iface.addPluginToMenu(self.menu_wfs, manager_action)
+        self.iface.addPluginToMenu(self.menu_wfs, config_action)
+        
+        # Guardar las acciones para poder eliminarlas después
         self.actions.extend([launcher_action, manager_action, config_action])
 
     def unload(self):
+        # Eliminar el proveedor de procesamiento
         QgsApplication.processingRegistry().removeProvider(self.provider)
+        
+        # Eliminar las acciones del menú
         for action in self.actions:
-            self.iface.removePluginMenu(self.menu, action)
+            self.iface.removePluginMenu(self.menu_wfs, action)
+        
+        # Eliminar la barra de herramientas
         del self.toolbar
 
     def run_launcher(self):
@@ -69,18 +82,40 @@ class ArcadiaWFSDownloaderPlugin:
 class WFSProcessingProvider(QgsProcessingProvider):
     def __init__(self):
         super().__init__()
+        self.downloader_tool = None
+        self.launcher_tool = None
+        self.manager_tool = None
 
     def loadAlgorithms(self, *args, **kwargs):
-        self.addAlgorithm(WFSDownloaderTool())
+        # Cargar herramientas principales
+        self.downloader_tool = WFSDownloaderTool()
+        self.addAlgorithm(self.downloader_tool)
+
+        # También añadimos las herramientas del menú como algoritmos
+        from .launcher_launcher import WFSLauncherAlgorithm
+        self.launcher_tool = WFSLauncherAlgorithm()
+        self.addAlgorithm(self.launcher_tool)
 
     def id(self, *args, **kwargs):
-        return 'arcadia_wfs_downloader_provider'
+        return 'arcadia_wfs_downloader'
 
     def name(self, *args, **kwargs):
-        return 'Arcadia WFS Downloader'
+        return 'Arcadia Suite'
 
     def longName(self, *args, **kwargs):
-        return self.name()
+        return 'Arcadia Suite for QGIS'
 
     def icon(self, *args, **kwargs):
-        return QIcon(os.path.join(os.path.dirname(__file__), 'icon.svg'))
+        return QIcon(os.path.join(os.path.dirname(__file__), 'icono_wfs_64.png'))
+
+    def groupId(self, *args, **kwargs):
+        return 'arcadia_suite'
+
+    def group(self, *args, **kwargs):
+        return QCoreApplication.translate("ArcadiaSuitePlugin", "Arcadia Suite")
+        
+    def subGroupId(self, *args, **kwargs):
+        return 'advanced_wfs_downloader'
+        
+    def subGroup(self, *args, **kwargs):
+        return QCoreApplication.translate("ArcadiaSuitePlugin", "Advanced WFS Downloader")

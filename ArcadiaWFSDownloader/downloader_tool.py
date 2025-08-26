@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import *
 from qgis import processing
-from .configurator_dialog import get_settings_file_path
+from .settings_utils import get_settings_file_path
 
 class WFSDownloaderTool(QgsProcessingAlgorithm):
     P_WFS_URL = 'WFS_BASE_URL'; P_TYPENAMES = 'TYPENAMES'; P_AOI = 'AOI'

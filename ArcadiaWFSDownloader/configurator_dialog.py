@@ -6,7 +6,7 @@ from qgis.PyQt.QtNetwork import QNetworkRequest
 from qgis.core import QgsApplication, QgsNetworkAccessManager
 from qgis import processing
 from datetime import datetime, timezone
-from .configurator_dialog import get_settings_file_path
+from .setting_utils import get_settings_file_path
 
 class AboutDialog(QDialog):
     def __init__(self, parent=None):

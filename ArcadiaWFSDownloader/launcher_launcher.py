@@ -9,6 +9,9 @@ class WFSLauncherAlgorithm(QgsProcessingAlgorithm):
 
 
     def tr(self, text):
+
+        return QCoreApplication.translate('WFSLauncherAlgorithm', text)
+
         return QCoreApplication.translate('WFSLauncherAlgorithm', text)
 
         self.addParameter(QgsProcessingParameterBoolean('RUN', self.tr('Ejecutar Configurador de descarga'), defaultValue=True))
@@ -24,5 +27,8 @@ class WFSLauncherAlgorithm(QgsProcessingAlgorithm):
     def processAlgorithm(self, parameters, context, feedback):
 
         iface = QgsProcessingContext.instance().mainWindow()
+
         dialog = WFSLauncherDialog(iface)
         dialog.exec_()
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterBoolean('RUN', self.tr('Ejecutar Configurador de descarga'), defaultValue=True))

@@ -31,3 +31,5 @@ class WFSSourceManagerAlgorithm(QgsProcessingAlgorithm):
          iface = QgsProcessingContext.instance().mainWindow()
          dialog = WFSSourceManager(iface)
          dialog.exec_()
+    def initAlgorithm(self, config=None):
+        self.addParameter(QgsProcessingParameterBoolean('RUN', self.tr('Ejecutar Administrador de Fuentes'), defaultValue=True))

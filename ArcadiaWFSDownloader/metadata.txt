@@ -1,8 +1,8 @@
 [general]
-name=Descargador WFS Avanzado
+name=ArcadiaWFSDownloader
 qgisMinimumVersion=3.16
 description=Descarga, recorta y filtra datos desde servicios WFS, con un administrador de fuentes integrado.
-version=1.0
+version=1.0.0
 author=José A. Sales (con asistencia de IA)
 email=jasales.gis@gmail.com
 

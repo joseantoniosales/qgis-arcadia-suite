@@ -20,6 +20,7 @@ from qgis.core import (
     QgsProcessingParameterBoolean,
     QgsProcessingParameterExpression,
     QgsProcessingParameterFileDestination,
+    QgsProcessingParameterFile,
     QgsProcessingContext,
     QgsVectorLayer,
     QgsGeometry,

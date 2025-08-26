@@ -1,20 +1,11 @@
- # -*- coding: utf-8 -*-
-
+# -*- coding: utf-8 -*-
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import QgsProcessingAlgorithm, QgsProcessingParameterBoolean, QgsProcessingContext
 from .launcher_dialog import WFSLauncherDialog
 
-
 class WFSLauncherAlgorithm(QgsProcessingAlgorithm):
-
-
     def tr(self, text):
-
         return QCoreApplication.translate('WFSLauncherAlgorithm', text)
-
-        return QCoreApplication.translate('WFSLauncherAlgorithm', text)
-
-        self.addParameter(QgsProcessingParameterBoolean('RUN', self.tr('Ejecutar Configurador de descarga'), defaultValue=True))
 
     def createInstance(self):
         return WFSLauncherAlgorithm()
@@ -23,12 +14,31 @@ class WFSLauncherAlgorithm(QgsProcessingAlgorithm):
         return 'wfs_launcher'
 
     def displayName(self):
-        return self.tr('Configurador de descarga')
-    def processAlgorithm(self, parameters, context, feedback):
+        return self.tr('Lanzador de Descargas WFS')
 
-        iface = QgsProcessingContext.instance().mainWindow()
+    def group(self):
+        return self.tr('Arcadia Suite')
 
-        dialog = WFSLauncherDialog(iface)
-        dialog.exec_()
+    def groupId(self):
+        return 'arcadia_suite'
+
+    def shortHelpString(self):
+        return self.tr('Lanza el diálogo de selección de servidor WFS y capas.')
+
     def initAlgorithm(self, config=None):
-        self.addParameter(QgsProcessingParameterBoolean('RUN', self.tr('Ejecutar Configurador de descarga'), defaultValue=True))
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                'RUN',
+                self.tr('Ejecutar Configurador de descarga'),
+                defaultValue=True
+            )
+        )
+
+    def processAlgorithm(self, parameters, context, feedback):
+        iface = context.project().mainWindow()
+        dialog = WFSLauncherDialog(iface)
+        result = dialog.exec_()
+        
+        return {
+            'WAS_CANCELLED': not bool(result)
+        }

@@ -4,15 +4,12 @@ from qgis.PyQt.QtCore import QCoreApplication
 from qgis.PyQt.QtWidgets import QAction
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import QgsApplication, QgsProcessingProvider
-import os
 
 # Importamos los algoritmos de procesamiento y diálogos
-# Importamos los algoritmos de procesamiento y diálogos
-# Importamos las clases de nuestras herramientas y diálogos
-from .launcher_launcher import WFSLauncherAlgorithm
 from .downloader_tool import WFSDownloaderTool
 from .manager_dialog import WFSSourceManager
 from .launcher_dialog import WFSLauncherDialog
+from .configurator_dialog import ConfiguratorDialog
 
 class ArcadiaWFSDownloaderPlugin:
     def __init__(self, iface):
@@ -66,7 +63,7 @@ class ArcadiaWFSDownloaderPlugin:
         self.manager_dialog.exec_()
 
     def run_configurator(self):
-        self.config_dialog = WFSLauncherDialog(self.iface.mainWindow())
+        self.config_dialog = ConfiguratorDialog(self.iface.mainWindow())
         self.config_dialog.exec_()
 
 class WFSProcessingProvider(QgsProcessingProvider):
@@ -74,19 +71,16 @@ class WFSProcessingProvider(QgsProcessingProvider):
         super().__init__()
 
     def loadAlgorithms(self, *args, **kwargs):
-         self.addAlgorithm(WFSLauncherAlgorithm())
-         self.addAlgorithm(WFSDownloaderTool())
-         self.addAlgorithm(WFSSourceManagerAlgorithm())
+        self.addAlgorithm(WFSDownloaderTool())
 
     def id(self, *args, **kwargs):
         return 'arcadia_wfs_downloader_provider'
 
     def name(self, *args, **kwargs):
-
         return 'Arcadia WFS Downloader'
 
     def longName(self, *args, **kwargs):
         return self.name()
 
     def icon(self, *args, **kwargs):
-         return QIcon(os.path.join(os.path.dirname(__file__), 'icon.svg'))
+        return QIcon(os.path.join(os.path.dirname(__file__), 'icon.svg'))

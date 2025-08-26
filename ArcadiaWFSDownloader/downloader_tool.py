@@ -1,8 +1,33 @@
 # -*- coding: utf-8 -*-
-import os, configparser, requests, urllib.parse, tempfile, zipfile, shutil, json, xml.etree.ElementTree as ET
+import os
+import configparser
+import requests
+import urllib.parse
+import tempfile
+import zipfile
+import shutil
+import json
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from qgis.PyQt.QtCore import QCoreApplication
-from qgis.core import *
+from qgis.core import (
+    QgsProcessingAlgorithm,
+    QgsProcessingParameterString,
+    QgsProcessingParameterEnum,
+    QgsProcessingParameterVectorLayer,
+    QgsProcessingParameterCrs,
+    QgsProcessingParameterNumber,
+    QgsProcessingParameterBoolean,
+    QgsProcessingParameterExpression,
+    QgsProcessingParameterFileDestination,
+    QgsProcessingContext,
+    QgsVectorLayer,
+    QgsGeometry,
+    QgsFeature,
+    QgsProcessing,
+    QgsProject,
+    QgsProcessingException
+)
 from qgis import processing
 from .settings_utils import get_settings_file_path
 

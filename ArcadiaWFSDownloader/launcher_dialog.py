@@ -1,13 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-================================================================================
-Lanzador de Tareas WFS - V12 (Final y Estable)
-================================================================================
-Autor: IA y José A. Sales
-
-Descripción:
-    Versión final que se integra con el sistema de configuración compartida.
-"""
 import os
 import configparser
 from qgis.PyQt.QtWidgets import (
@@ -17,14 +8,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt
 from qgis.core import QgsApplication
 from qgis import processing
-
-def get_settings_file_path():
-    try:
-        profile_path = QgsApplication.instance().activeUserProfilePath()
-    except AttributeError:
-        home = os.path.expanduser("~")
-        profile_path = os.path.join(home, 'Library/Application Support/QGIS/QGIS3/profiles/default')
-    return os.path.join(profile_path, 'python', 'wfs_suite_settings.ini')
+from .configurator_dialog import get_settings_file_path
 
 class WFSLauncherDialog(QDialog):
     def __init__(self, parent=None):

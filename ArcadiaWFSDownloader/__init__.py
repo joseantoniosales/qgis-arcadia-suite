@@ -1,3 +1,3 @@
 def classFactory(iface):
-    from .plugin_main import WFSDownloaderSuitePlugin
-    return WFSDownloaderSuitePlugin(iface)
+    from .plugin_main import ArcadiaWFSDownloaderPlugin
+    return ArcadiaWFSDownloaderPlugin(iface)

@@ -1,10 +1,11 @@
 [general]
-name=ArcadiaWFSDownloader
+name=Arcadia WFS Downloader
 qgisMinimumVersion=3.16
-description=Descarga, recorta y filtra datos desde servicios WFS, con un administrador de fuentes integrado.
+description=Suite de herramientas para descargar, recortar, filtrar y gestionar datos desde servicios WFS, con soporte para trabajo en equipo.
 version=1.0.0
 author=José A. Sales (con asistencia de IA)
-email=jasales.gis@gmail.com
+email=tu_email@ejemplo.com
 
 [plugin_dependencies]
 requests=
+configparser=

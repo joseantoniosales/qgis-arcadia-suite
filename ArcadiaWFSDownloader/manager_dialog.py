@@ -1,41 +1,38 @@
 # -*- coding: utf-8 -*-
-import os
-import configparser
-import requests
-import xml.etree.ElementTree as ET
-import json
-import webbrowser
-from qgis.PyQt.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QPushButton, QDialogButtonBox, QLineEdit, QFormLayout, QMessageBox,
-    QAbstractItemView, QProgressDialog, QLabel, QComboBox, QFileDialog
-)
+import os, configparser, requests, xml.etree.ElementTree as ET, json, webbrowser, tempfile
+from qgis.PyQt.QtWidgets import *
 from qgis.PyQt.QtCore import Qt, QUrl, QTimer
 from qgis.PyQt.QtNetwork import QNetworkRequest
 from qgis.core import QgsApplication, QgsNetworkAccessManager
 from qgis import processing
-from datetime import datetime
-from .configurator_dialog import get_settings_file_path # Reutilizamos la función del configurador
+from datetime import datetime, timezone
+from .configurator_dialog import get_settings_file_path
+
+class AboutDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Acerca de...")
+        layout = QVBoxLayout(self)
+        title = QLabel("Administrador de Fuentes WFS", self)
+        title.setStyleSheet("font-size: 16px; font-weight: bold;"); layout.addWidget(title)
+        author = QLabel("Parte de Arcadia Suite for QGIS", self); layout.addWidget(author)
+        description = QLabel("Autor: José A. Sales", self); layout.addWidget(description)
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok, self); button_box.accepted.connect(self.accept); layout.addWidget(button_box)
 
 class WFSEditDialog(QDialog):
     def __init__(self, parent=None, data=None):
         super().__init__(parent)
         self.setWindowTitle("Añadir/Editar Servidor WFS")
         self.setMinimumWidth(600)
-        layout = QFormLayout(self)
-        layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-        self.name_edit = QLineEdit(self)
-        self.url_edit = QLineEdit(self)
-        self.typenames_edit = QLineEdit(self)
-        self.format_combo = QComboBox(self)
+        layout = QFormLayout(self); layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        self.name_edit = QLineEdit(self); self.url_edit = QLineEdit(self)
+        self.typenames_edit = QLineEdit(self); self.format_combo = QComboBox(self)
         self.format_options = ['Automático (SHP por defecto)', 'SHP (shape-zip)', 'GML', 'GeoJSON', 'GeoPackage']
         self.format_combo.addItems(self.format_options)
-        typenames_layout = QHBoxLayout()
-        typenames_layout.addWidget(self.typenames_edit)
+        typenames_layout = QHBoxLayout(); typenames_layout.addWidget(self.typenames_edit)
         detect_button = QPushButton("Detectar TypeNames y Formatos", self)
         typenames_layout.addWidget(detect_button)
-        layout.addRow("Nombre Descriptivo:", self.name_edit)
-        layout.addRow("URL Base:", self.url_edit)
+        layout.addRow("Nombre Descriptivo:", self.name_edit); layout.addRow("URL Base:", self.url_edit)
         layout.addRow("TypeNames (detectados o manuales):", typenames_layout)
         layout.addRow("Formato Preferido:", self.format_combo)
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
@@ -70,8 +67,7 @@ class WFSEditDialog(QDialog):
             if reply.error() != 6: QMessageBox.critical(self, "Fallo de Conexión", f"No se pudo conectar:\n{reply.errorString()}")
             reply.deleteLater(); return
         try:
-            content = reply.readAll()
-            root = ET.fromstring(content)
+            content = reply.readAll(); root = ET.fromstring(content)
             namespaces = {'wfs': 'http://www.opengis.net/wfs/2.0', 'ows': 'http://www.opengis.net/ows/1.1'}
             feature_types = root.findall('.//wfs:FeatureType', namespaces)
             if not feature_types:
@@ -80,8 +76,7 @@ class WFSEditDialog(QDialog):
             names = sorted([ft.find('wfs:Name', namespaces).text.strip() for ft in feature_types if ft.find('wfs:Name', namespaces) is not None])
             if not names: QMessageBox.warning(self, "Sin Resultados", "Conexión OK pero no se encontraron typeNames."); return
             self.typenames_edit.setText(",".join(names))
-            first_ft = feature_types[0]
-            formats_xml = first_ft.findall('wfs:OutputFormats/wfs:Format', namespaces)
+            first_ft = feature_types[0]; formats_xml = first_ft.findall('wfs:OutputFormats/wfs:Format', namespaces)
             if not formats_xml: formats_xml = root.findall('.//ows:Parameter[@name="outputFormat"]/ows:Value', namespaces)
             supported_formats = {fmt.text.lower() for fmt in formats_xml}
             best_format = 'Automático (SHP por defecto)'
@@ -101,9 +96,8 @@ class WFSEditDialog(QDialog):
             format_value = "application/geopackage+sqlite3"
             params = { 'service': 'WFS', 'version': '1.1.0', 'request': 'GetFeature', 'typeName': typename, 'outputFormat': format_value }
             url = f"{base_url}?{'&'.join([f'{k}={v}' for k,v in params.items()])}"
-            headers = {'User-Agent': 'WFS-Source-Manager/1.0'}
-            response = requests.head(url, headers=headers, timeout=15, allow_redirects=True)
-            response.raise_for_status()
+            headers = {'User-Agent': 'ArcadiaSuite-SourceManager/1.0'}
+            response = requests.head(url, headers=headers, timeout=15, allow_redirects=True); response.raise_for_status()
             size_in_bytes = response.headers.get('Content-Length')
             if size_in_bytes: return f"{round(int(size_in_bytes) / (1024 * 1024), 2)} MB"
             return "No disponible"
@@ -119,33 +113,28 @@ class WFSSourceManager(QDialog):
         self.sources = []
         self.current_update_index = 0
         self.progress_dialog = None
-        
         layout = QVBoxLayout(self)
         self.table = QTableWidget(0, 4, self); self.table.setHorizontalHeaderLabels(["Nombre", "URL Base", "TypeNames Sugeridos", "Formato Preferido"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows); self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         layout.addWidget(self.table)
-        
         button_layout = QHBoxLayout()
-        add_button = QPushButton("Añadir...", self); edit_button = QPushButton("Editar...", self)
-        delete_button = QPushButton("Eliminar", self); update_cache_button = QPushButton("Actualizar Caché", self)
-        button_layout.addWidget(add_button); button_layout.addWidget(edit_button)
-        button_layout.addWidget(delete_button); button_layout.addStretch(); button_layout.addWidget(update_cache_button)
+        add_button = QPushButton("Añadir...", self); edit_button = QPushButton("Editar...", self); delete_button = QPushButton("Eliminar", self)
+        update_cache_button = QPushButton("Actualizar Caché", self)
+        button_layout.addWidget(add_button); button_layout.addWidget(edit_button); button_layout.addWidget(delete_button)
+        button_layout.addStretch(); button_layout.addWidget(update_cache_button)
         layout.addLayout(button_layout)
-        
         adv_button_layout = QHBoxLayout()
         import_button = QPushButton("Importar...", self); export_button = QPushButton("Exportar...", self)
         open_styles_button = QPushButton("Abrir Carpeta de Estilos", self)
         adv_button_layout.addWidget(import_button); adv_button_layout.addWidget(export_button)
         adv_button_layout.addStretch(); adv_button_layout.addWidget(open_styles_button)
         layout.addLayout(adv_button_layout)
-        
         main_buttons_layout = QHBoxLayout()
         about_button = QPushButton("Acerca de...", self)
         main_buttons_layout.addWidget(about_button); main_buttons_layout.addStretch()
         close_button_box = QDialogButtonBox(QDialogButtonBox.Close, self)
         main_buttons_layout.addWidget(close_button_box)
         layout.addLayout(main_buttons_layout)
-        
         add_button.clicked.connect(self.add_source); edit_button.clicked.connect(self.edit_source)
         delete_button.clicked.connect(self.delete_source); update_cache_button.clicked.connect(self.update_cache)
         import_button.clicked.connect(self.import_sources); export_button.clicked.connect(self.export_sources)
@@ -154,8 +143,7 @@ class WFSSourceManager(QDialog):
         self.load_sources()
 
     def _get_paths(self):
-        config = configparser.ConfigParser()
-        settings_file = get_settings_file_path()
+        config = configparser.ConfigParser(); settings_file = get_settings_file_path()
         local_path = os.path.dirname(os.path.realpath(__file__))
         config_path, styles_path, cache_path = local_path, local_path, local_path
         if os.path.exists(settings_file):
@@ -166,8 +154,7 @@ class WFSSourceManager(QDialog):
         return config_path, styles_path, cache_path
 
     def load_sources(self, path=None):
-        self.sources = []
-        file_to_load = path if path else self.dat_file_path
+        self.sources = []; file_to_load = path if path else self.dat_file_path
         if not os.path.exists(file_to_load): return
         try:
             with open(file_to_load, 'r', encoding='utf-8') as f:
@@ -204,8 +191,7 @@ class WFSSourceManager(QDialog):
     def populate_table(self):
         self.table.setRowCount(0)
         for i, source in enumerate(self.sources):
-            self.table.insertRow(i)
-            self.table.setItem(i, 0, QTableWidgetItem(source['name'])); self.table.setItem(i, 1, QTableWidgetItem(source['url']))
+            self.table.insertRow(i); self.table.setItem(i, 0, QTableWidgetItem(source['name'])); self.table.setItem(i, 1, QTableWidgetItem(source['url']))
             self.table.setItem(i, 2, QTableWidgetItem(source['typenames'])); self.table.setItem(i, 3, QTableWidgetItem(source['format']))
         self.table.resizeColumnsToContents(); self.table.horizontalHeader().setStretchLastSection(True)
 
@@ -241,30 +227,22 @@ class WFSSourceManager(QDialog):
     def update_cache(self):
         current_row = self.table.currentRow()
         if current_row < 0: QMessageBox.information(self, "Sin Selección", "Selecciona un servidor para actualizar su caché."); return
-        if not self.cache_path or not os.path.isdir(self.cache_path):
-            QMessageBox.warning(self, "Ruta no Definida", "La carpeta de caché no está configurada o no es válida."); return
-
+        if not self.cache_path or not os.path.isdir(self.cache_path): QMessageBox.warning(self, "Ruta no Definida", "La carpeta de caché no está configurada o no es válida."); return
         source = self.sources[current_row]
         self.typenames_to_cache = [tn.strip() for tn in source['typenames'].split(',') if tn.strip()]
         if not self.typenames_to_cache: QMessageBox.warning(self, "Sin Capas", "El servidor no tiene typeNames definidos."); return
-
         reply = QMessageBox.question(self, "Confirmar", f"Se descargarán/actualizarán {len(self.typenames_to_cache)} capa(s) en la caché. El proceso puede tardar.\n\n¿Quieres continuar?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         if reply == QMessageBox.No: return
-
         self.cache_progress = QProgressDialog(f"Actualizando caché para {source['name']}...", "Cancelar", 0, len(self.typenames_to_cache), self)
         self.cache_progress.setWindowModality(Qt.WindowModal); self.cache_progress.show()
-        
-        self.current_cache_index = 0
-        self.cache_source = source
+        self.current_cache_index = 0; self.cache_source = source
         self._process_next_cache_layer()
 
     def _process_next_cache_layer(self):
         if self.current_cache_index >= len(self.typenames_to_cache) or self.cache_progress.wasCanceled():
             self.cache_progress.close(); QMessageBox.information(self, "Finalizado", "Actualización de caché completada."); self.save_sources(); return
-
         typename = self.typenames_to_cache[self.current_cache_index]
         self.cache_progress.setValue(self.current_cache_index); self.cache_progress.setLabelText(f"Descargando: {typename}")
-        
         self._download_layer_for_cache(self.cache_source, typename)
     
     def _download_layer_for_cache(self, source, typename):
@@ -274,30 +252,18 @@ class WFSSourceManager(QDialog):
             extension = 'gpkg' if 'geopackage' in output_format else 'zip' if 'zip' in output_format else 'gml' if 'gml' in output_format else 'json'
             params = { 'service': 'WFS', 'version': '1.1.0', 'request': 'GetFeature', 'typeName': typename, 'outputFormat': output_format }
             url = f"{source['url'].split('?')[0]}?{urllib.parse.urlencode(params)}"
-            headers = {'User-Agent': 'WFS-Source-Manager-Cache/1.0'}
-            response = requests.get(url, headers=headers, timeout=300, stream=True)
-            response.raise_for_status()
-            
+            headers = {'User-Agent': 'ArcadiaSuite-CacheManager/1.0'}
+            response = requests.get(url, headers=headers, timeout=300, stream=True); response.raise_for_status()
             temp_file = os.path.join(tempfile.gettempdir(), f"cache_download.{extension}")
             with open(temp_file, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192): f.write(chunk)
-            
             cache_gpkg_path = os.path.join(self.cache_path, 'wfs_cache.gpkg')
             layer_name_in_cache = typename.replace(':', '_').replace('.', '_')
-            
-            processing.run("gdal:convertformat", {
-                'INPUT': temp_file,
-                'OUTPUT': cache_gpkg_path,
-                'OPTIONS': f'-lco OVERWRITE=YES -nln {layer_name_in_cache}'
-            }, is_child_algorithm=False)
-            
-            etag = response.headers.get('ETag')
-            last_modified = response.headers.get('Last-Modified')
+            processing.run("gdal:convertformat", { 'INPUT': temp_file, 'OUTPUT': cache_gpkg_path, 'OPTIONS': f'-lco OVERWRITE=YES -nln {layer_name_in_cache}' }, is_child_algorithm=False)
+            etag = response.headers.get('ETag'); last_modified = response.headers.get('Last-Modified')
             self._update_cache_manifest(typename, etag, last_modified)
-
         except Exception as e:
             print(f"Fallo al cachear {typename}: {e}")
-        
         self.current_cache_index += 1
         QTimer.singleShot(1000, self._process_next_cache_layer)
 
@@ -306,21 +272,5 @@ class WFSSourceManager(QDialog):
         manifest = {}
         if os.path.exists(manifest_path):
             with open(manifest_path, 'r') as f: manifest = json.load(f)
-        manifest[typename] = {'etag': etag, 'last_modified': last_modified, 'cached_at': datetime.now().isoformat()}
+        manifest[typename] = {'etag': etag, 'last_modified': last_modified, 'cached_at': datetime.now(timezone.utc).isoformat()}
         with open(manifest_path, 'w') as f: json.dump(manifest, f, indent=4)
-
-class AboutDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Acerca de...")
-        layout = QVBoxLayout(self)
-        title = QLabel("Administrador de Fuentes WFS - V15", self)
-        title.setStyleSheet("font-size: 16px; font-weight: bold;"); layout.addWidget(title)
-        author = QLabel("Autor: José A. Sales (con asistencia de IA)", self); layout.addWidget(author)
-        description = QLabel("Herramienta para gestionar el archivo 'wfs_servers.dat'.", self); layout.addWidget(description)
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok, self); button_box.accepted.connect(self.accept); layout.addWidget(button_box)
-
-wfs_manager_dialog = None
-def run_wfs_source_manager():
-    global wfs_manager_dialog
-    wfs_manager_dialog = WFSSourceManager(QgsApplication.activeWindow()); wfs_manager_dialog.exec_()

@@ -13,7 +13,7 @@ class WFSDownloaderTool(QgsProcessingAlgorithm):
     def tr(self, text): return QCoreApplication.translate('WFSDownloaderTool', text)
     def createInstance(self): return WFSDownloaderTool()
     def name(self): return 'arcadia_wfs_downloader'
-    def displayName(self): return self.tr('1. Descargador WFS Avanzado')
+    def displayName(self): return self.tr('Descargador WFS Avanzado')
     def group(self): return self.tr('Arcadia Suite')
     def groupId(self): return 'arcadia_suite'
 

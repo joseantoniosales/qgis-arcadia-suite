@@ -8,7 +8,6 @@ from qgis.core import QgsApplication, QgsProcessingProvider
 # Importamos las clases de nuestras herramientas
 from .downloader_tool import WFSDownloaderTool
 from .manager_dialog import WFSSourceManager
-from .configurator_dialog import WFSConfigDialog
 from .launcher_dialog import WFSLauncherDialog
 
 class ArcadiaWFSDownloaderPlugin:
@@ -37,8 +36,8 @@ class ArcadiaWFSDownloaderPlugin:
         manager_action = QAction("Administrador de Fuentes WFS...", self.iface.mainWindow())
         manager_action.triggered.connect(self.run_source_manager)
 
-        config_action = QAction("Configurar Suite...", self.iface.mainWindow())
-        config_action.triggered.connect(self.run_configurator)
+        config_action = QAction("Administrador de Fuentes WFS...", self.iface.mainWindow())
+        config_action.triggered.connect(self.run_source_manager)
         
         self.toolbar.addAction(launcher_action)
         self.iface.addPluginToMenu(self.menu, launcher_action)
@@ -62,7 +61,7 @@ class ArcadiaWFSDownloaderPlugin:
         self.manager_dialog.exec_()
 
     def run_configurator(self):
-        self.config_dialog = WFSConfigDialog(self.iface.mainWindow())
+        self.config_dialog = WFSSourceManager(self.iface.mainWindow())
         self.config_dialog.exec_()
 
 class WFSProcessingProvider(QgsProcessingProvider):

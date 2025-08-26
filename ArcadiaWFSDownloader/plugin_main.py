@@ -6,11 +6,10 @@ from qgis.PyQt.QtGui import QIcon
 from qgis.core import QgsApplication, QgsProcessingProvider
 
 # --- IMPORTACIONES CORREGIDAS ---
-# Se importa la clase con su nombre final y correcto
+# Se usan los nombres de clase correctos de cada archivo
 from .downloader_tool import WFSDownloaderTool
 from .manager_dialog import WFSSourceManager
-from .configurator_dialog import ConfigDialog
-from .launcher_dialog import WFSLauncherDialog
+from .configurator_dialog import WFSConfigDialog
 
 class ArcadiaSuitePlugin:
     def __init__(self, iface):
@@ -23,7 +22,6 @@ class ArcadiaSuitePlugin:
         
         self.manager_dialog = None
         self.config_dialog = None
-        self.launcher_dialog = None
 
     def initGui(self):
         self.provider = WFSProcessingProvider()
@@ -31,21 +29,19 @@ class ArcadiaSuitePlugin:
 
         icon_path = os.path.join(os.path.dirname(__file__), 'icon.svg')
         
-        launcher_action = QAction(QIcon(icon_path), "Lanzador de Descargas WFS", self.iface.mainWindow())
-        launcher_action.triggered.connect(self.run_launcher)
-        
-        manager_action = QAction("Administrador de Fuentes WFS...", self.iface.mainWindow())
+        # Acción para el Administrador de Fuentes (ahora es el lanzador principal)
+        manager_action = QAction(QIcon(icon_path), "Administrador de Fuentes WFS", self.iface.mainWindow())
         manager_action.triggered.connect(self.run_source_manager)
-
+        
+        # Acción para el Configurador
         config_action = QAction("Configurar Suite...", self.iface.mainWindow())
         config_action.triggered.connect(self.run_configurator)
         
-        self.toolbar.addAction(launcher_action)
-        self.iface.addPluginToMenu(self.menu, launcher_action)
+        self.toolbar.addAction(manager_action)
         self.iface.addPluginToMenu(self.menu, manager_action)
         self.iface.addPluginToMenu(self.menu, config_action)
         
-        self.actions.extend([launcher_action, manager_action, config_action])
+        self.actions.extend([manager_action, config_action])
 
     def unload(self):
         QgsApplication.processingRegistry().removeProvider(self.provider)
@@ -53,16 +49,15 @@ class ArcadiaSuitePlugin:
             self.iface.removePluginMenu(self.menu, action)
         del self.toolbar
 
-    def run_launcher(self):
-        self.launcher_dialog = WFSLauncherDialog(self.iface.mainWindow())
-        self.launcher_dialog.show()
-
     def run_source_manager(self):
+        # El Administrador ahora actúa como el punto de entrada principal
+        # Desde él se pueden lanzar las descargas si se implementa esa funcionalidad
         self.manager_dialog = WFSSourceManager(self.iface.mainWindow())
         self.manager_dialog.exec_()
 
     def run_configurator(self):
-        self.config_dialog = ConfigDialog(self.iface.mainWindow())
+        # --- LÍNEA CORREGIDA ---
+        self.config_dialog = WFSConfigDialog(self.iface.mainWindow())
         self.config_dialog.exec_()
 
 class WFSProcessingProvider(QgsProcessingProvider):

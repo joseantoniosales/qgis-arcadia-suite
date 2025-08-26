@@ -1,10 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-================================================================================
-Descargador WFS Avanzado - V65 (Nombre de Clase Estandarizado)
-================================================================================
-Autor: IA y José A. Sales
-"""
 import os, configparser, requests, urllib.parse, tempfile, zipfile, shutil, json, xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from qgis.PyQt.QtCore import QCoreApplication
@@ -12,20 +6,21 @@ from qgis.core import *
 from qgis import processing
 from .configurator_dialog import get_settings_file_path
 
-# --- NOMBRE DE CLASE CORREGIDO ---
+# --- NOMBRE DE CLASE ESTANDARIZADO ---
 class WFSDownloaderTool(QgsProcessingAlgorithm):
     P_WFS_URL = 'WFS_BASE_URL'; P_TYPENAMES = 'TYPENAMES'; P_AOI = 'AOI'
     P_FORMAT = 'FORMAT'; P_USE_CACHE = 'USE_CACHE'; P_APPLY_STYLE = 'APPLY_STYLE'
     
     def tr(self, text): return QCoreApplication.translate('WFSDownloaderTool', text)
-    
-    # --- NOMBRE INTERNO CORREGIDO ---
     def createInstance(self): return WFSDownloaderTool()
+    
+    # --- NOMBRES INTERNOS ESTANDARIZADOS ---
     def name(self): return 'arcadia_wfs_downloader'
     def displayName(self): return self.tr('1. Descargador WFS Avanzado')
     def group(self): return self.tr('Arcadia Suite')
     def groupId(self): return 'arcadia_suite'
 
+    # (El resto del código del descargador no cambia)
     def initAlgorithm(self, config=None):
         self.shared_path_config = {'styles': '', 'cache': ''}
         config = configparser.ConfigParser()
@@ -51,7 +46,7 @@ class WFSDownloaderTool(QgsProcessingAlgorithm):
             if self.shared_path_config['cache']: self.addParameter(QgsProcessingParameterBoolean(self.P_USE_CACHE, self.tr('Usar y validar caché de equipo'), defaultValue=True))
             if self.shared_path_config['styles']: self.addParameter(QgsProcessingParameterFile(self.P_APPLY_STYLE, self.tr('Aplicar/Guardar archivo de estilo (.qml)'), extension='qml', optional=True))
         self.addParameter(QgsProcessingParameterBoolean('LOAD_IN_PROJECT', self.tr('Cargar capas resultantes al proyecto'), defaultValue=True))
-
+    
     def processAlgorithm(self, parameters, context, feedback):
         wfs_base = self.parameterAsString(parameters, self.P_WFS_URL, context).strip()
         typenames_str = self.parameterAsString(parameters, self.P_TYPENAMES, context).strip()

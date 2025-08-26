@@ -1,42 +1,30 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
-Descargador WFS Avanzado - V68 (Validación Automática de Caché)
+Descargador WFS Avanzado - V65 (Nombre de Clase Estandarizado)
 ================================================================================
 Autor: IA y José A. Sales
-
-Descripción:
-    - AÑADE: Una comprobación automática de la caché. Antes de usar un archivo
-      local, hace una petición HEAD al servidor para comparar las cabeceras
-      ETag o Last-Modified y decidir si la caché está obsoleta.
 """
 import os, configparser, requests, urllib.parse, tempfile, zipfile, shutil, json, xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from qgis.PyQt.QtCore import QCoreApplication
-from qgis.core import (
-    QgsProcessing, QgsProcessingAlgorithm, QgsProcessingParameterVectorLayer,
-    QgsProcessingParameterCrs, QgsProcessingParameterNumber, QgsProcessingParameterEnum,
-    QgsProcessingParameterString, QgsProcessingParameterBoolean, QgsProcessingParameterFileDestination,
-    QgsProcessingParameterExpression, QgsProcessingException, QgsCoordinateReferenceSystem,
-    QgsVectorLayer, QgsProject, QgsGeometry, QgsFeature, QgsApplication, QgsProcessingParameterFile
-)
+from qgis.core import *
 from qgis import processing
+from .configurator_dialog import get_settings_file_path
 
-def get_settings_file_path():
-    try: profile_path = QgsApplication.instance().activeUserProfilePath()
-    except AttributeError: home = os.path.expanduser("~"); profile_path = os.path.join(home, 'Library/Application Support/QGIS/QGIS3/profiles/default')
-    return os.path.join(profile_path, 'python', 'wfs_suite_settings.ini')
-
-class AdvancedWFSDownloader_V68(QgsProcessingAlgorithm):
+# --- NOMBRE DE CLASE CORREGIDO ---
+class WFSDownloaderTool(QgsProcessingAlgorithm):
     P_WFS_URL = 'WFS_BASE_URL'; P_TYPENAMES = 'TYPENAMES'; P_AOI = 'AOI'
     P_FORMAT = 'FORMAT'; P_USE_CACHE = 'USE_CACHE'; P_APPLY_STYLE = 'APPLY_STYLE'
     
-    def tr(self, text): return QCoreApplication.translate('AdvancedWFSDownloader_V68', text)
-    def createInstance(self): return AdvancedWFSDownloader_V68()
-    def name(self): return 'advanced_wfs_downloader_v68'
-    def displayName(self): return self.tr('Descargador WFS Avanzado')
-    def group(self): return self.tr('Utilidades WFS')
-    def groupId(self): return 'utilidades_wfs'
+    def tr(self, text): return QCoreApplication.translate('WFSDownloaderTool', text)
+    
+    # --- NOMBRE INTERNO CORREGIDO ---
+    def createInstance(self): return WFSDownloaderTool()
+    def name(self): return 'arcadia_wfs_downloader'
+    def displayName(self): return self.tr('1. Descargador WFS Avanzado')
+    def group(self): return self.tr('Arcadia Suite')
+    def groupId(self): return 'arcadia_suite'
 
     def initAlgorithm(self, config=None):
         self.shared_path_config = {'styles': '', 'cache': ''}
@@ -63,49 +51,6 @@ class AdvancedWFSDownloader_V68(QgsProcessingAlgorithm):
             if self.shared_path_config['cache']: self.addParameter(QgsProcessingParameterBoolean(self.P_USE_CACHE, self.tr('Usar y validar caché de equipo'), defaultValue=True))
             if self.shared_path_config['styles']: self.addParameter(QgsProcessingParameterFile(self.P_APPLY_STYLE, self.tr('Aplicar/Guardar archivo de estilo (.qml)'), extension='qml', optional=True))
         self.addParameter(QgsProcessingParameterBoolean('LOAD_IN_PROJECT', self.tr('Cargar capas resultantes al proyecto'), defaultValue=True))
-    
-    def _is_cache_stale(self, wfs_base, typename, format_value, feedback):
-        cache_folder = self.shared_path_config.get('cache')
-        if not cache_folder: return True
-        manifest_path = os.path.join(cache_folder, 'wfs_cache_manifest.json')
-        if not os.path.exists(manifest_path): return True
-        with open(manifest_path, 'r') as f: manifest = json.load(f)
-        layer_info = manifest.get(typename)
-        if not layer_info: return True
-        try:
-            params = { 'service': 'WFS', 'version': '1.1.0', 'request': 'GetFeature', 'typeName': typename, 'outputFormat': format_value }
-            url = f"{wfs_base.split('?')[0]}?{urllib.parse.urlencode(params)}"
-            feedback.pushInfo("Verificando estado de la caché remota...")
-            response = requests.head(url, timeout=15, allow_redirects=True)
-            response.raise_for_status()
-            remote_etag = response.headers.get('ETag')
-            if remote_etag and remote_etag == layer_info.get('etag'):
-                feedback.pushInfo("Caché validada por ETag. Está actualizada.")
-                return False
-            remote_last_modified = response.headers.get('Last-Modified')
-            if remote_last_modified:
-                try:
-                    remote_date = datetime.strptime(remote_last_modified, '%a, %d %b %Y %H:%M:%S %Z').replace(tzinfo=timezone.utc)
-                    local_date = datetime.fromisoformat(layer_info.get('cached_at')).replace(tzinfo=timezone.utc)
-                    if remote_date <= local_date:
-                        feedback.pushInfo("Caché validada por fecha. Está actualizada.")
-                        return False
-                except: pass
-            feedback.pushInfo("La versión remota es más nueva. Se necesita actualizar la caché.")
-            return True
-        except Exception as e:
-            feedback.reportError(f"No se pudo verificar la caché remota, se usará la caché local por seguridad. Error: {e}")
-            return False
-
-    def _update_cache_manifest(self, typename, headers):
-        cache_folder = self.shared_path_config.get('cache')
-        if not cache_folder: return
-        manifest_path = os.path.join(cache_folder, 'wfs_cache_manifest.json')
-        manifest = {}
-        if os.path.exists(manifest_path):
-            with open(manifest_path, 'r') as f: manifest = json.load(f)
-        manifest[typename] = { 'etag': headers.get('ETag'), 'last_modified': headers.get('Last-Modified'), 'cached_at': datetime.now(timezone.utc).isoformat() }
-        with open(manifest_path, 'w') as f: json.dump(manifest, f, indent=4)
 
     def processAlgorithm(self, parameters, context, feedback):
         wfs_base = self.parameterAsString(parameters, self.P_WFS_URL, context).strip()
@@ -145,9 +90,7 @@ class AdvancedWFSDownloader_V68(QgsProcessingAlgorithm):
         saved_any = False
         for tn in typenames:
             feedback.pushInfo(self.tr(f'\n--- Procesando typeName: {tn} ---'))
-            downloaded_layer = None
-            cache_folder = self.shared_path_config.get('cache')
-            layer_name_in_cache = tn.replace(':', '_').replace('.', '_')
+            downloaded_layer = None; cache_folder = self.shared_path_config.get('cache'); layer_name_in_cache = tn.replace(':', '_').replace('.', '_')
             cache_gpkg_path = os.path.join(cache_folder, 'wfs_cache.gpkg') if cache_folder else ''
             format_map = { 0: 'shape-zip', 1: 'application/gml+xml; version=3.2', 2: 'application/json', 3: 'application/geopackage+sqlite3' }
             format_value = format_map.get(format_index, 'shape-zip')
@@ -194,7 +137,7 @@ class AdvancedWFSDownloader_V68(QgsProcessingAlgorithm):
         return {'OUT_SHP': out_shp_base}
 
     def _http_get(self, url, timeout=90):
-        headers = { 'User-Agent': 'QGIS-PyQGIS/V68', 'Accept': '*/*' }; r = requests.get(url, headers=headers, stream=True, timeout=timeout, allow_redirects=True); r.raise_for_status(); return r
+        headers = { 'User-Agent': 'QGIS-PyQGIS/V65', 'Accept': '*/*' }; r = requests.get(url, headers=headers, stream=True, timeout=timeout, allow_redirects=True); r.raise_for_status(); return r
 
     def _write_stream_with_progress(self, resp, out_path, feedback):
         chunk_size, total_dl, mb_marker = 8192, 0, 0
@@ -202,27 +145,22 @@ class AdvancedWFSDownloader_V68(QgsProcessingAlgorithm):
             for chunk in resp.iter_content(chunk_size=chunk_size):
                 if chunk: f.write(chunk); total_dl += len(chunk)
                 if total_dl // (5 * 1024 * 1024) > mb_marker: mb_marker = total_dl // (5 * 1024 * 1024); feedback.pushInfo(f"... {mb_marker * 5} MB descargados ...")
-        return total_dl
+        return total_dl, resp.headers
     
     def _download_and_load_wfs(self, base_url, typename, srs, format_index, feedback):
         format_map = { 0: ('SHP (shape-zip)', 'shape-zip', 'zip'), 1: ('GML', 'application/gml+xml; version=3.2', 'gml'), 2: ('GeoJSON', 'application/json', 'json'), 3: ('GeoPackage', 'application/geopackage+sqlite3', 'gpkg') }
         label, output_format, extension = format_map.get(format_index, format_map[0])
         base_params = { 'service': 'WFS', 'version': '1.1.0', 'request': 'GetFeature', 'typeName': typename, 'srsName': srs.authid(), 'outputFormat': output_format }
         url = f"{base_url.split('?')[0]}?{urllib.parse.urlencode(base_params)}"
-        tmp_dir = tempfile.mkdtemp(prefix='icv_v68_')
+        tmp_dir = tempfile.mkdtemp(prefix='icv_v65_')
         out_file = os.path.join(tmp_dir, f"download.{extension}")
+        response_headers = {}
         try:
             feedback.pushInfo(self.tr(f"Descargando capa en formato {label}..."))
-            r = self._http_get(url)
-            size = self._write_stream_with_progress(r, out_file, feedback)
-            if size < 2048:
-                feedback.reportError(self.tr(f"Respuesta demasiado pequeña ({size} bytes)."))
-                return None, None
+            r = self._http_get(url); size, response_headers = self._write_stream_with_progress(r, out_file, feedback)
+            if size < 2048: feedback.reportError(self.tr(f"Respuesta demasiado pequeña ({size} bytes).")); return None, None
             feedback.pushInfo(self.tr(f"Descarga finalizada ({round(size/1024/1024,2)} MB)"))
-        except Exception as e:
-            feedback.reportError(self.tr(f"Fallo en la descarga: {e}")); return None, None
-        
-        headers = r.headers
+        except Exception as e: feedback.reportError(self.tr(f"Fallo en la descarga: {e}")); return None, None
         if extension == 'zip':
             out_folder = os.path.join(tmp_dir, 'unzipped'); os.makedirs(out_folder, exist_ok=True)
             try:
@@ -232,9 +170,9 @@ class AdvancedWFSDownloader_V68(QgsProcessingAlgorithm):
                 if fn.lower().endswith('.shp'):
                     shp_path = os.path.join(out_folder, fn)
                     layer = QgsVectorLayer(shp_path, os.path.basename(shp_path), 'ogr')
-                    if layer.isValid(): return layer, headers
+                    if layer.isValid(): return layer, response_headers
             feedback.reportError("El ZIP no contenía un archivo .shp válido."); return None, None
         else:
             layer = QgsVectorLayer(out_file, typename, "ogr")
-            if layer.isValid(): return layer, headers
+            if layer.isValid(): return layer, response_headers
             else: feedback.reportError(f"El archivo {extension.upper()} no es una capa vectorial válida."); return None, None

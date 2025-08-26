@@ -1,15 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-================================================================================
-Cerebro Principal del Complemento - Arcadia Suite (Corregido)
-================================================================================
-Autor: IA y José A. Sales
-
-Descripción:
-    Versión que corrige un ImportError al no coincidir el nombre de la clase
-    importada con la definida en el archivo de la herramienta.
-"""
-
 import os
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.PyQt.QtWidgets import QAction
@@ -18,7 +7,7 @@ from qgis.core import QgsApplication, QgsProcessingProvider
 
 # --- IMPORTACIONES CORREGIDAS ---
 # Se importa la clase con su nombre final y correcto
-from .downloader_tool import AdvancedWFSDownloader_V64
+from .downloader_tool import WFSDownloaderTool
 from .manager_dialog import WFSSourceManager
 from .configurator_dialog import ConfigDialog
 from .launcher_dialog import WFSLauncherDialog
@@ -81,7 +70,8 @@ class WFSProcessingProvider(QgsProcessingProvider):
         super().__init__()
 
     def loadAlgorithms(self, *args, **kwargs):
-        self.addAlgorithm(AdvancedWFSDownloader_V64())
+        # --- LÍNEA CORREGIDA ---
+        self.addAlgorithm(WFSDownloaderTool())
 
     def id(self, *args, **kwargs):
         return 'arcadia_suite_provider'

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugins>
+
+    <pyqgis_plugin name="Arcadia WFS Downloader" version="1.0.0">
+        <description><![CDATA[Herramienta avanzada para descargar, recortar y gestionar datos desde servicios WFS.]]></description>
+        <about><![CDATA[Parte de QGIS Arcadia Suite. Desarrollado por José A. Sales.]]></about>
+        <version>1.0.0</version>
+        <qgis_minimum_version>3.16</qgis_minimum_version>
+        <author_name><![CDATA[José A. Sales]]></author_name>
+        <email><![CDATA[jasales.gis@gmail.com]]></email>
+        <download_url>https://github.com/joseantoniosales/qgis-arcadia-suite/releases/download/v1.0.0/Arcadia-WFS-Downloader-v1.0.0.zip</download_url>
+    </pyqgis_plugin>
+
+</plugins>

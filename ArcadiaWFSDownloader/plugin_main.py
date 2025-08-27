@@ -17,6 +17,10 @@ class ArcadiaWFSDownloaderPlugin:
         self.provider = None
         self.actions = []
         
+        # Asegurar que existan los directorios necesarios
+        from .settings_utils import ensure_plugin_directories
+        ensure_plugin_directories()
+        
         # Definir la jerarquía de menús
         self.menu_arcadia = QCoreApplication.translate("ArcadiaSuitePlugin", "&Arcadia Suite")
         self.menu_wfs = self.menu_arcadia + "/" + QCoreApplication.translate("ArcadiaSuitePlugin", "Advanced WFS Downloader")

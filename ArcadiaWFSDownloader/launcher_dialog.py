@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import os
 import configparser
+import os
+from .settings_utils import get_wfs_servers_path
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QListWidget, QListWidgetItem, QLabel,
     QPushButton, QDialogButtonBox, QMessageBox
@@ -13,28 +15,11 @@ from .configurator_dialog import get_settings_file_path
 class WFSLauncherDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Lanzador de Descargas WFS")
-        self.setMinimumSize(500, 500)
-        work_path = self._get_work_path()
-        self.dat_file_path = os.path.join(work_path, 'wfs_servers.dat')
+        self.setWindowTitle("Lanzador WFS")
+        self.setMinimumWidth(400)
         self.sources = []
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("1. Selecciona un servidor preconfigurado:", self))
-        self.server_list = QListWidget(self)
-        layout.addWidget(self.server_list)
-        layout.addWidget(QLabel("2. Selecciona las capas (typeNames) a descargar:", self))
-        self.typenames_list = QListWidget(self)
-        layout.addWidget(self.typenames_list)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
-        buttons.button(QDialogButtonBox.Ok).setText("Configurar Descarga...")
-        buttons.button(QDialogButtonBox.Cancel).setText("Cancelar")
-        layout.addWidget(buttons)
-        buttons.accepted.connect(self.launch_tool)
-        buttons.rejected.connect(self.reject)
-        self.server_list.currentRowChanged.connect(self.update_typenames_list)
+        self.dat_file_path = get_wfs_servers_path()
         self.load_sources()
-        if self.server_list.count() > 0:
-            self.server_list.setCurrentRow(0)
 
     def _get_work_path(self):
         config = configparser.ConfigParser()

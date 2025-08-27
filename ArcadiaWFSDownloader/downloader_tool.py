@@ -45,6 +45,33 @@ class WFSDownloaderTool(QgsProcessingAlgorithm):
     def subGroup(self): return self.tr('Advanced WFS Downloader')
     def subGroupId(self): return 'advanced_wfs_downloader'
 
+    def helpString(self):
+        """Retorna el texto de ayuda del algoritmo."""
+        return self.tr("""
+        Esta herramienta permite descargar y procesar datos desde servicios WFS con opciones avanzadas de recorte y filtrado.
+
+        Parámetros:
+        - URL base del servicio WFS: URL del servicio WFS sin parámetros.
+        - typeName(s) a descargar: Identificador de la(s) capa(s) a descargar, separados por comas.
+        - Formato de Descarga: Formato en el que se descargará la capa (SHP, GML, GeoJSON o GeoPackage).
+        - Capa de AOI: Capa poligonal que define el área de interés.
+        - CRS de trabajo: Sistema de referencia para la descarga y el resultado.
+        - Buffer: Distancia en metros para expandir el área de recorte.
+        - Modo de máscara:
+          * EXTENT + Buffer: Usa el rectángulo envolvente del AOI más el buffer
+          * GEOMETRÍA + Buffer: Usa la forma exacta del AOI más el buffer
+          * GEOMETRÍA sin Buffer: Usa la forma exacta del AOI sin aplicar buffer
+        - Redondear esquinas: Si se activa, suaviza las esquinas del buffer
+        - Filtro: Permite aplicar una expresión de filtrado a los datos descargados
+        - Salidas: Permite guardar tanto el resultado como la máscara de recorte
+
+        Funcionalidades adicionales:
+        - Caché de equipo: Guarda las capas descargadas para reutilizarlas
+        - Estilos compartidos: Permite aplicar y compartir estilos (.qml)
+        - Validación de caché: Verifica si hay versiones más nuevas en el servidor
+        - Reparación automática: Corrige problemas comunes en las geometrías
+        """)
+
     def initAlgorithm(self, config=None):
         self.shared_path_config = {'styles': '', 'cache': ''}
         config = configparser.ConfigParser()
@@ -59,7 +86,13 @@ class WFSDownloaderTool(QgsProcessingAlgorithm):
         self.addParameter(QgsProcessingParameterVectorLayer(self.P_AOI, self.tr('Capa de AOI (poligonal)'), [QgsProcessing.TypeVectorPolygon]))
         self.addParameter(QgsProcessingParameterCrs('SRS', self.tr('CRS de trabajo y salida'), defaultValue='EPSG:25830'))
         self.addParameter(QgsProcessingParameterNumber('BUFFER_M', self.tr('Buffer (metros)'), type=QgsProcessingParameterNumber.Double, defaultValue=100.0, minValue=0.0))
-        self.addParameter(QgsProcessingParameterEnum('RECORTE_MODE', self.tr('Modo de máscara'), options=[self.tr('EXTENT de la AOI + Buffer'), self.tr('GEOMETRÍA de la AOI + Buffer')], defaultValue=0))
+        self.addParameter(QgsProcessingParameterEnum('RECORTE_MODE', self.tr('Modo de máscara'), 
+            options=[
+                self.tr('EXTENT de la AOI + Buffer'), 
+                self.tr('GEOMETRÍA de la AOI + Buffer'),
+                self.tr('GEOMETRÍA de la AOI sin Buffer')
+            ], 
+            defaultValue=0))
         self.addParameter(QgsProcessingParameterBoolean('ROUND_CORNERS', self.tr('Redondear esquinas del buffer'), defaultValue=False))
         self.addParameter(QgsProcessingParameterBoolean('FILTRO_ON', self.tr('Aplicar filtro por expresión'), defaultValue=False))
         self.addParameter(QgsProcessingParameterExpression('FILTRO_EXPR', self.tr('Expresión de filtro'), defaultValue='"clas_suelo" LIKE \'SNU%\'', parentLayerParameterName=self.P_AOI))
@@ -129,20 +162,57 @@ class WFSDownloaderTool(QgsProcessingAlgorithm):
         feedback.pushInfo(self.tr('1. Creando máscara de recorte...'))
         reprojected_aoi = processing.run("native:reprojectlayer", { 'INPUT': aoi_layer, 'TARGET_CRS': srs, 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT }, context=context, feedback=feedback)['OUTPUT']
         mask_layer = None
-        if recorte_mode == 0 and not round_corners:
-            extent_layer = processing.run("native:polygonfromlayerextent", { 'INPUT': reprojected_aoi, 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT }, context=context, feedback=feedback)['OUTPUT']
-            rect = extent_layer.extent(); xmin, ymin, xmax, ymax = rect.xMinimum() - buffer_m, rect.yMinimum() - buffer_m, rect.xMaximum() + buffer_m, rect.yMaximum() + buffer_m
-            wkt = f"POLYGON(({xmin} {ymin}, {xmax} {ymin}, {xmax} {ymax}, {xmin} {ymax}, {xmin} {ymin}))"
-            mask_layer = QgsVectorLayer(f"Polygon?crs={srs.authid()}", "Mascara_Recta", "memory")
-            feat = QgsFeature(); feat.setGeometry(QgsGeometry.fromWkt(wkt)); mask_layer.dataProvider().addFeatures([feat])
-        else:
-            source_for_buffer = reprojected_aoi
-            if recorte_mode == 0: source_for_buffer = processing.run("native:polygonfromlayerextent", { 'INPUT': reprojected_aoi, 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT }, context=context, feedback=feedback)['OUTPUT']
-            else: source_for_buffer = processing.run("native:dissolve", { 'INPUT': reprojected_aoi, 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT }, context=context, feedback=feedback)['OUTPUT']
-            buffer_params = { 'INPUT': source_for_buffer, 'DISTANCE': buffer_m, 'SEGMENTS': 5, 'DISSOLVE': True, 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT }
-            if round_corners: buffer_params.update({'JOIN_STYLE': 1, 'END_CAP_STYLE': 0})
-            else: buffer_params.update({'JOIN_STYLE': 0, 'END_CAP_STYLE': 2, 'MITER_LIMIT': 5.0})
+        # Modo 0: EXTENT + Buffer
+        if recorte_mode == 0:
+            if not round_corners:
+                # Crear máscara rectangular simple
+                extent_layer = processing.run("native:polygonfromlayerextent", { 'INPUT': reprojected_aoi, 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT }, context=context, feedback=feedback)['OUTPUT']
+                rect = extent_layer.extent()
+                xmin, ymin = rect.xMinimum() - buffer_m, rect.yMinimum() - buffer_m
+                xmax, ymax = rect.xMaximum() + buffer_m, rect.yMaximum() + buffer_m
+                wkt = f"POLYGON(({xmin} {ymin}, {xmax} {ymin}, {xmax} {ymax}, {xmin} {ymax}, {xmin} {ymin}))"
+                mask_layer = QgsVectorLayer(f"Polygon?crs={srs.authid()}", "Mascara_Recta", "memory")
+                feat = QgsFeature()
+                feat.setGeometry(QgsGeometry.fromWkt(wkt))
+                mask_layer.dataProvider().addFeatures([feat])
+            else:
+                # Crear máscara con buffer y esquinas redondeadas
+                extent_layer = processing.run("native:polygonfromlayerextent", { 'INPUT': reprojected_aoi, 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT }, context=context, feedback=feedback)['OUTPUT']
+                buffer_params = {
+                    'INPUT': extent_layer,
+                    'DISTANCE': buffer_m,
+                    'SEGMENTS': 5,
+                    'DISSOLVE': True,
+                    'JOIN_STYLE': 1,
+                    'END_CAP_STYLE': 0,
+                    'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+                }
+                mask_layer = processing.run("native:buffer", buffer_params, context=context, feedback=feedback)['OUTPUT']
+        
+        # Modo 1: GEOMETRÍA + Buffer
+        elif recorte_mode == 1:
+            # Disolver la geometría antes de aplicar el buffer
+            dissolved = processing.run("native:dissolve", { 'INPUT': reprojected_aoi, 'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT }, context=context, feedback=feedback)['OUTPUT']
+            buffer_params = {
+                'INPUT': dissolved,
+                'DISTANCE': buffer_m,
+                'SEGMENTS': 5,
+                'DISSOLVE': True,
+                'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT
+            }
+            if round_corners:
+                buffer_params.update({'JOIN_STYLE': 1, 'END_CAP_STYLE': 0})
+            else:
+                buffer_params.update({'JOIN_STYLE': 0, 'END_CAP_STYLE': 2, 'MITER_LIMIT': 5.0})
             mask_layer = processing.run("native:buffer", buffer_params, context=context, feedback=feedback)['OUTPUT']
+        
+        # Modo 2: GEOMETRÍA sin Buffer
+        else:
+            # Simplemente disolver la geometría sin aplicar buffer
+            mask_layer = processing.run("native:dissolve", { 
+                'INPUT': reprojected_aoi, 
+                'OUTPUT': QgsProcessing.TEMPORARY_OUTPUT 
+            }, context=context, feedback=feedback)['OUTPUT']
         if save_mask and out_mask_path:
             processing.run("gdal:convertformat", { 'INPUT': mask_layer, 'OUTPUT': out_mask_path }, context=context, feedback=feedback)
             if load_project: QgsProject.instance().addMapLayer(QgsVectorLayer(out_mask_path, 'Mascara_Guardada', 'ogr'))

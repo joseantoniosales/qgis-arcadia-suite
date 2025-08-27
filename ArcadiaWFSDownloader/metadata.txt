@@ -4,7 +4,7 @@
 name=Arcadia WFS Downloader
 description=Suite de herramientas para descargar, recortar, filtrar y gestionar datos desde servicios WFS
 about=El complemento Arcadia WFS Downloader facilita la automatización de flujos de trabajo con servicios WFS en QGIS. Incluye herramientas para la descarga, recorte, filtrado y gestión de datos desde servicios WFS. Soporta trabajo en equipo mediante configuraciones compartidas.
-version=1.0.0
+version=1.1.0
 qgisMinimumVersion=3.16
 author=José A. Sales
 email=jasales.gis@gmail.com
@@ -18,6 +18,13 @@ deprecated=False
 hasProcessingProvider=yes
 server=False
 icon=icono_wfs_64.png
+changelog=1.1.0 2025-08-27
+    - Nueva opción de recorte: GEOMETRÍA sin Buffer
+    - Organización mejorada de directorios (config/, cache/, styles/)
+    - Creación automática de directorios necesarios
+    - Documentación completa del módulo de descarga
+    - Gestión mejorada de configuraciones compartidas
+
 changelog=1.0.0 2024-02-27
     - Primera versión pública
     - Soporte para descarga y gestión de fuentes WFS

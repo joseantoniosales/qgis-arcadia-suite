@@ -1,6 +1,13 @@
 # -*- coding: utf-8 -*-
 import os
 import configparser
+from .settings_utils import (
+    get_settings_file_path,
+    get_config_dir,
+    get_styles_dir,
+    get_cache_dir,
+    ensure_plugin_directories
+)
 import requests
 import xml.etree.ElementTree as ET
 import json
@@ -149,14 +156,27 @@ class WFSSourceManager(QDialog):
         self.load_sources()
 
     def _get_paths(self):
-        config = configparser.ConfigParser(); settings_file = get_settings_file_path()
-        local_path = os.path.dirname(os.path.realpath(__file__))
-        config_path, styles_path, cache_path = local_path, local_path, local_path
+        ensure_plugin_directories()  # Aseguramos que existan todos los directorios
+        config = configparser.ConfigParser()
+        settings_file = get_settings_file_path()
+        
+        # Obtenemos las rutas por defecto
+        config_path = get_config_dir()
+        styles_path = get_styles_dir()
+        cache_path = get_cache_dir()
+        
+        # Si existe el archivo de configuración, usamos las rutas configuradas
         if os.path.exists(settings_file):
             config.read(settings_file, encoding='utf-8')
-            config_path = config.get('Workgroup', 'ConfigPath', fallback=local_path).strip() or local_path
-            styles_path = config.get('Workgroup', 'StylesPath', fallback=local_path).strip() or local_path
-            cache_path = config.get('Workgroup', 'CachePath', fallback=local_path).strip() or local_path
+            custom_styles = config.get('Workgroup', 'StylesPath', fallback='').strip()
+            custom_cache = config.get('Workgroup', 'CachePath', fallback='').strip()
+            
+            # Solo usamos las rutas personalizadas si existen
+            if custom_styles and os.path.exists(custom_styles):
+                styles_path = custom_styles
+            if custom_cache and os.path.exists(custom_cache):
+                cache_path = custom_cache
+                
         return config_path, styles_path, cache_path
 
     def load_sources(self, path=None):

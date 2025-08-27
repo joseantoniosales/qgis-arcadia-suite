@@ -3,6 +3,106 @@
 ## Descripción
 Arcadia WFS Downloader es una suite de herramientas para QGIS que optimiza el flujo de trabajo con servicios de entidades vectoriales (WFS). El plugin automatiza la cadena de procesos de descarga, recorte a área de interés (AOI), filtrado y estilización de datos WFS, especialmente en un entorno de trabajo colaborativo.
 
+## Instalación y Configuración Local
+
+### 1. Instalación del Plugin
+1. Abre QGIS
+2. Ve a "Complementos > Administrar e instalar complementos"
+3. Selecciona "Instalar desde ZIP"
+4. Navega hasta el archivo `ArcadiaWFSDownloader.zip` y selecciónalo
+5. Click en "Instalar Plugin"
+
+### 2. Configuración Local
+Por defecto, el plugin funciona en modo local sin necesidad de configuración adicional:
+
+- Los archivos de configuración se almacenan en la carpeta del plugin
+- La caché se guarda en la carpeta del plugin como `wfs_cache.gpkg`
+- Los estilos se guardan junto a las capas descargadas
+
+#### Ubicación de los archivos en modo local:
+```
+QGIS/profiles/default/python/plugins/ArcadiaWFSDownloader/
+  ├── wfs_servers.dat    # Lista de servidores WFS
+  ├── wfs_cache.gpkg     # Caché local de capas
+  └── styles/            # Carpeta de estilos QML
+```
+
+### 3. Primeros Pasos
+1. Abre QGIS
+2. Ve a "Complementos > Arcadia Suite > Advanced WFS Downloader > Lanzador de Descargas WFS"
+3. Selecciona un servidor de la lista (por defecto incluye el servidor de Delimitaciones Municipales)
+4. Selecciona las capas a descargar
+5. Configura el área de interés y otras opciones
+6. Click en "Ejecutar"
+
+### 4. Gestión de Servidores WFS
+Para añadir o editar servidores WFS:
+1. Ve a "Complementos > Arcadia Suite > Advanced WFS Downloader > Administrador de Fuentes WFS"
+2. Usa los botones "Añadir", "Editar" o "Eliminar" para gestionar los servidores
+3. Para cada servidor puedes:
+   - Asignar un nombre descriptivo
+   - Especificar la URL base
+   - Detectar automáticamente las capas disponibles
+   - Seleccionar el formato preferido de descarga
+
+### 5. Migración de Local a Red
+Si después de usar el plugin en modo local decides migrar a un entorno de trabajo en equipo:
+1. Haz una copia de seguridad de tu archivo `wfs_servers.dat` local
+2. Configura las carpetas compartidas como se describe en la siguiente sección
+3. Copia tu archivo `wfs_servers.dat` a la carpeta de configuración compartida
+4. Los estilos y la caché se generarán automáticamente en las nuevas ubicaciones
+
+## Configuración para Trabajo en Equipo
+
+### 1. Estructura de Carpetas Compartidas
+El plugin utiliza tres carpetas principales que pueden configurarse para trabajo en equipo:
+
+```
+CARPETA_COMPARTIDA/
+  ├── config/              # Configuraciones (wfs_servers.dat)
+  ├── cache/              # Caché de capas descargadas (wfs_cache.gpkg)
+  └── styles/             # Estilos QML compartidos
+```
+
+### 2. Configuración Inicial
+1. Crea una estructura de carpetas compartida en red accesible para todo el equipo
+2. Abre QGIS y ve a "Complementos > Arcadia Suite > Advanced WFS Downloader > Configurador"
+3. Configura las rutas de las carpetas compartidas:
+   - Carpeta de Configuración: `\\SERVIDOR\CARPETA_COMPARTIDA\config`
+   - Carpeta de Estilos: `\\SERVIDOR\CARPETA_COMPARTIDA\styles`
+   - Carpeta de Caché: `\\SERVIDOR\CARPETA_COMPARTIDA\cache`
+
+### 3. Archivo wfs_servers.dat
+El archivo `wfs_servers.dat` contiene la lista de servidores WFS disponibles. Se debe colocar en la carpeta de configuración.
+
+Formato del archivo:
+```
+# Formato: Nombre (TAB) URL Base (TAB) TypeNames (TAB) Formato Preferido
+Nombre_Servidor    URL_Base    TypeName1,TypeName2    Formato
+```
+
+Ejemplo incluido:
+```
+Delimitaciones municipales    https://terramapas.icv.gva.es/0105_Delimitaciones    ms:ICV.Comarcas,ms:ICV.ComunidadAutonoma,ms:ICV.Municipios,ms:ICV.Provincias    GeoPackage
+```
+
+Notas importantes:
+- Usa TAB como separador (no espacios)
+- Los TypeNames van separados por comas (sin espacios)
+- Formatos soportados: GeoPackage, SHP (shape-zip), GML, GeoJSON
+
+### 4. Sistema de Caché
+- El archivo `wfs_cache.gpkg` se crea automáticamente en la carpeta de caché
+- Las capas se almacenan como tablas dentro del GeoPackage
+- El sistema verifica automáticamente si hay versiones más nuevas disponibles
+- Cada usuario puede tener su propia caché local o usar la caché compartida
+
+### 5. Sistema de Estilos
+- Los estilos se guardan como archivos .qml en la carpeta de estilos
+- Nombrado automático: `[typename].qml` (ejemplo: `ms_ICV_Municipios.qml`)
+- Se aplican automáticamente al cargar las capas
+- Se pueden compartir entre todos los usuarios
+
 ## Características Principales
 
 ### 1. Gestión Centralizada de Fuentes WFS

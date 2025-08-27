@@ -9,7 +9,7 @@
         <author_name><![CDATA[José A. Sales]]></author_name>
         <email><![CDATA[jasales.gis@gmail.com]]></email>
         <download_url>https://github.com/joseantoniosales/qgis-arcadia-suite/releases/download/v1.1.0/ArcadiaWFSDownloader.zip</download_url>
-        <update_date>2025-08-27</update_date>
+        <update_date>2023-08-27</update_date>
         <changelog><![CDATA[
             - Nueva opción de recorte: GEOMETRÍA sin Buffer
             - Organización mejorada de directorios (config/, cache/, styles/)

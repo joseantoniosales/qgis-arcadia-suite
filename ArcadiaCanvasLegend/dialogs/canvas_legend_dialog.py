@@ -3,7 +3,7 @@ Dialog for configuring canvas legend overlay
 Handles all user interface interactions for legend configuration
 """
 
-from qgis.PyQt.QtCore import Qt, pyqtSignal, QTimer, QRect
+from qgis.PyQt.QtCore import Qt, pyqtSignal, QTimer, QRect, QPointF, QSize
 from qgis.PyQt.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
                                 QLabel, QPushButton, QComboBox, QSpinBox, 
                                 QCheckBox, QGroupBox, QTabWidget, QWidget, 
@@ -12,7 +12,8 @@ from qgis.PyQt.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
 from qgis.PyQt.QtGui import QFont, QPixmap, QPainter, QColor
 from qgis.core import (QgsProject, QgsLayoutExporter, QgsLayoutItemMap, 
                       QgsLayoutItemLegend, QgsPrintLayout, QgsLayoutPoint,
-                      QgsLayoutSize, QgsUnitTypes)
+                      QgsLayoutSize, QgsUnitTypes, QgsSymbolLayerUtils,
+                      QgsRenderContext, QgsMapSettings)
 from qgis.gui import QgsColorButton, QgsFontButton
 
 import os
@@ -134,9 +135,56 @@ class CanvasLegendOverlay(QWidget):
             if symbols:
                 # Draw each symbol
                 for symbol_info in symbols:
-                    # Draw symbol (simplified - would use actual QGIS symbol rendering)
                     symbol_rect = QRect(padding + 5, y_offset + 2, symbol_width, self.symbol_size)
-                    painter.fillRect(symbol_rect, QColor('gray'))  # Placeholder for actual symbol
+                    
+                    # Try to render actual symbol
+                    symbol = symbol_info.get('symbol')
+                    symbol_color = symbol_info.get('color')
+                    
+                    if symbol:
+                        try:
+                            # Create a render context for better symbol rendering
+                            pixmap = QPixmap(symbol_width, self.symbol_size)
+                            pixmap.fill(Qt.transparent)
+                            
+                            symbol_painter = QPainter(pixmap)
+                            symbol_painter.setRenderHint(QPainter.Antialiasing)
+                            
+                            # Create a simple render context
+                            context = symbol_painter
+                            
+                            # Render the symbol with proper size
+                            if hasattr(symbol, 'startRender') and hasattr(symbol, 'renderPoint'):
+                                symbol.startRender(context)
+                                # Render at center of the rectangle
+                                center_point = QPointF(symbol_width/2, self.symbol_size/2)
+                                symbol.renderPoint(center_point, context)
+                                symbol.stopRender(context)
+                            elif hasattr(symbol, 'drawPreviewIcon'):
+                                # Alternative method for some symbol types
+                                icon_pixmap = symbol.drawPreviewIcon(painter, QSize(symbol_width, self.symbol_size))
+                                pixmap = icon_pixmap
+                            
+                            symbol_painter.end()
+                            
+                            # Draw the rendered symbol
+                            painter.drawPixmap(symbol_rect, pixmap)
+                            
+                        except Exception as e:
+                            # Fallback to colored rectangle if symbol rendering fails
+                            print(f"Error rendering symbol: {e}")
+                            if symbol_color:
+                                painter.fillRect(symbol_rect, symbol_color)
+                            elif hasattr(symbol, 'color'):
+                                painter.fillRect(symbol_rect, symbol.color())
+                            else:
+                                painter.fillRect(symbol_rect, QColor('lightblue'))
+                    elif symbol_color:
+                        # Use the stored color
+                        painter.fillRect(symbol_rect, symbol_color)
+                    else:
+                        # Final fallback
+                        painter.fillRect(symbol_rect, QColor('lightgray'))
                     
                     # Draw label
                     painter.setPen(QColor('black'))
@@ -144,9 +192,27 @@ class CanvasLegendOverlay(QWidget):
                     painter.drawText(text_x, y_offset + 15, symbol_info.get('label', 'Unknown'))
                     y_offset += line_height
             else:
-                # Simple layer item without symbols
+                # Simple layer item without symbols - draw layer color or default
+                symbol_rect = QRect(padding + 5, y_offset + 2, symbol_width, self.symbol_size)
+                
+                # Try to get layer color from renderer
+                layer = item.get('layer')
+                if layer and hasattr(layer, 'renderer') and layer.renderer():
+                    renderer = layer.renderer()
+                    if hasattr(renderer, 'symbol') and renderer.symbol():
+                        symbol = renderer.symbol()
+                        if hasattr(symbol, 'color'):
+                            painter.fillRect(symbol_rect, symbol.color())
+                        else:
+                            painter.fillRect(symbol_rect, QColor('lightblue'))
+                    else:
+                        painter.fillRect(symbol_rect, QColor('lightblue'))
+                else:
+                    painter.fillRect(symbol_rect, QColor('lightgray'))
+                
                 painter.setPen(QColor('black'))
-                painter.drawText(padding + 5, y_offset + 15, item.get('name', 'Unknown'))
+                text_x = padding + symbol_width + 10
+                painter.drawText(text_x, y_offset + 15, item.get('name', 'Unknown'))
                 y_offset += line_height
                 
         return y_offset
@@ -160,10 +226,64 @@ class CanvasLegendDialog(QDialog):
         self.iface = iface
         self.canvas = iface.mapCanvas()
         self.legend_overlay = None
+        self.auto_update_enabled = True
         
         self.setupUi()
         self.load_settings()
         self.connect_signals()
+        self.connect_layer_signals()
+        
+    def connect_layer_signals(self):
+        """Connect signals to detect layer changes"""
+        try:
+            # Connect to layer tree changes
+            root = QgsProject.instance().layerTreeRoot()
+            root.visibilityChanged.connect(self.on_layer_visibility_changed)
+            
+            # Connect to project signals for layer addition/removal
+            QgsProject.instance().layersAdded.connect(self.on_layers_changed)
+            QgsProject.instance().layersRemoved.connect(self.on_layers_changed)
+            
+            # Connect to layer style changes
+            QgsProject.instance().layerStyleChanged.connect(self.on_layer_style_changed)
+            
+        except Exception as e:
+            print(f"Error connecting layer signals: {e}")
+            
+    def on_layer_visibility_changed(self, node):
+        """Handle layer visibility changes"""
+        if self.auto_update_enabled and self.legend_overlay and self.legend_overlay.isVisible():
+            # Small delay to allow QGIS to process the change
+            QTimer.singleShot(100, self.update_legend_auto)
+            
+    def on_layers_changed(self):
+        """Handle layer addition/removal"""
+        if self.auto_update_enabled and self.legend_overlay and self.legend_overlay.isVisible():
+            QTimer.singleShot(100, self.update_legend_auto)
+            
+    def on_layer_style_changed(self, layer_id):
+        """Handle layer style changes"""
+        if self.auto_update_enabled and self.legend_overlay and self.legend_overlay.isVisible():
+            QTimer.singleShot(100, self.update_legend_auto)
+            
+    def update_legend_auto(self):
+        """Update legend automatically without user interaction"""
+        try:
+            if self.legend_overlay and self.legend_overlay.isVisible():
+                # Get current settings
+                settings = self.get_current_settings()
+                
+                # Get updated legend items
+                legend_items = self.get_legend_items()
+                
+                # Update overlay
+                self.legend_overlay.update_legend_content(legend_items, settings)
+                
+                # Reposition overlay if needed
+                self.position_overlay()
+                
+        except Exception as e:
+            print(f"Error auto-updating legend: {e}")
         
     def setupUi(self):
         """Set up the user interface"""
@@ -351,6 +471,11 @@ class CanvasLegendDialog(QDialog):
         self.all_layers_check.setChecked(True)
         layers_layout.addWidget(self.all_layers_check)
         
+        self.auto_update_check = QCheckBox(self.tr('Auto-update when layers change'))
+        self.auto_update_check.setChecked(True)
+        self.auto_update_check.toggled.connect(self.toggle_auto_update)
+        layers_layout.addWidget(self.auto_update_check)
+        
         layout.addWidget(layers_group)
         layout.addStretch()
         
@@ -536,38 +661,66 @@ class CanvasLegendDialog(QDialog):
             renderer = layer.renderer()
             if renderer:
                 # Handle different renderer types
-                if hasattr(renderer, 'symbol'):
+                renderer_type = renderer.type()
+                
+                if renderer_type == 'singleSymbol':
                     # Single symbol renderer
                     symbol = renderer.symbol()
                     if symbol:
                         symbols.append({
                             'label': layer.name(),
-                            'symbol': symbol.clone() if hasattr(symbol, 'clone') else symbol
+                            'symbol': symbol,
+                            'color': symbol.color() if hasattr(symbol, 'color') else None
                         })
-                elif hasattr(renderer, 'categories'):
+                        
+                elif renderer_type == 'categorizedSymbol':
                     # Categorized renderer
                     for category in renderer.categories():
-                        symbols.append({
-                            'label': category.label(),
-                            'symbol': category.symbol().clone() if hasattr(category.symbol(), 'clone') else category.symbol()
-                        })
-                elif hasattr(renderer, 'ranges'):
+                        if category.renderState():  # Only include enabled categories
+                            symbols.append({
+                                'label': category.label() if category.label() else category.value(),
+                                'symbol': category.symbol(),
+                                'color': category.symbol().color() if hasattr(category.symbol(), 'color') else None
+                            })
+                            
+                elif renderer_type == 'graduatedSymbol':
                     # Graduated renderer
                     for range_item in renderer.ranges():
                         symbols.append({
                             'label': range_item.label(),
-                            'symbol': range_item.symbol().clone() if hasattr(range_item.symbol(), 'clone') else range_item.symbol()
+                            'symbol': range_item.symbol(),
+                            'color': range_item.symbol().color() if hasattr(range_item.symbol(), 'color') else None
                         })
-                elif hasattr(renderer, 'rules'):
+                        
+                elif renderer_type == 'RuleRenderer':
                     # Rule-based renderer
-                    for rule in renderer.rootRule().children():
-                        if rule.isActive():
-                            symbols.append({
-                                'label': rule.label() or rule.filterExpression(),
-                                'symbol': rule.symbol().clone() if hasattr(rule.symbol(), 'clone') else rule.symbol()
-                            })
+                    root_rule = renderer.rootRule()
+                    if root_rule:
+                        for rule in root_rule.children():
+                            if rule.isActive() and rule.symbol():
+                                symbols.append({
+                                    'label': rule.label() or rule.filterExpression() or 'Rule',
+                                    'symbol': rule.symbol(),
+                                    'color': rule.symbol().color() if hasattr(rule.symbol(), 'color') else None
+                                })
+                else:
+                    # Fallback for other renderer types
+                    symbol = getattr(renderer, 'symbol', lambda: None)()
+                    if symbol:
+                        symbols.append({
+                            'label': layer.name(),
+                            'symbol': symbol,
+                            'color': symbol.color() if hasattr(symbol, 'color') else None
+                        })
+                        
         except Exception as e:
             print(f"Error getting symbols for layer {layer.name()}: {e}")
+            # Fallback: create a basic symbol representation
+            symbols.append({
+                'label': layer.name(),
+                'symbol': None,
+                'color': QColor('lightblue')
+            })
         return symbols
         
     def position_overlay(self):
@@ -677,6 +830,10 @@ class CanvasLegendDialog(QDialog):
             QMessageBox.critical(self, self.tr('Error'), 
                                self.tr('Error creating composition: {}').format(str(e)))
             
+    def toggle_auto_update(self, enabled):
+        """Toggle automatic legend updates"""
+        self.auto_update_enabled = enabled
+        
     def hide_legend(self):
         """Hide the legend overlay without closing the dialog"""
         try:
@@ -697,6 +854,18 @@ class CanvasLegendDialog(QDialog):
         
     def cleanup(self):
         """Clean up resources when plugin is unloaded"""
+        try:
+            # Disconnect layer signals
+            root = QgsProject.instance().layerTreeRoot()
+            root.visibilityChanged.disconnect(self.on_layer_visibility_changed)
+            
+            QgsProject.instance().layersAdded.disconnect(self.on_layers_changed)
+            QgsProject.instance().layersRemoved.disconnect(self.on_layers_changed)
+            QgsProject.instance().layerStyleChanged.disconnect(self.on_layer_style_changed)
+            
+        except Exception as e:
+            print(f"Error disconnecting signals: {e}")
+            
         if self.legend_overlay:
             self.legend_overlay.close()
             self.legend_overlay = None

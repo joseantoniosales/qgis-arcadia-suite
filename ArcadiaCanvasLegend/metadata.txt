@@ -17,14 +17,13 @@ experimental=False
 deprecated=False
 server=False
 changelog=changelog=
-    1.0.21: BETA 21 - Emergency crash protection and enhanced debugging
-    - Emergency painting protection to prevent any crashes during paintEvent
-    - Detailed logging for Beta 20 component initialization and usage
-    - Fixed variable naming inconsistencies between dialog and overlay
-    - Progressive degradation system: Beta 20 -> Legacy -> Emergency mode
-    - Added traceback logging for Beta 20 initialization failures
-    - Enhanced safety checks for cache component availability
-    - Crash-proof emergency rendering mode with basic legend display
+    1.0.21: BETA 21 - LayerSymbolInfo compatibility fix and centralized version control
+    - Fixed 'LayerSymbolInfo' object has no attribute 'get' error
+    - Added conversion layer between LayerSymbolInfo and dict format for compatibility
+    - Centralized version control with PLUGIN_VERSION variable
+    - Enhanced error logging with traceback for better debugging
+    - Maintained backward compatibility with legacy system
+    - Progressive degradation: Beta 20 -> Legacy -> Emergency mode
     1.0.20: BETA 20 - Complete architectural refactoring with cache-based symbol management
     - New SymbolCacheManager with background symbol generation and thread-safe operations
     - Introduced SymbolDataExtractor for centralized QGIS API access abstraction

@@ -1,6 +1,6 @@
 """
 Dialog for configuring canvas legend overlay
-BETA 20 REFACTORED - Implements cache strategy and separation of responsibilities
+BETA 21 ENHANCED - Emergency crash protection and progressive degradation
 Handles all user interface interactions for legend configuration
 """
 
@@ -19,6 +19,10 @@ from qgis.gui import QgsColorButton, QgsFontButton
 
 import os
 from ..utils import get_arcadia_setting, set_arcadia_setting
+
+# PLUGIN VERSION CONTROL - Single source of truth
+PLUGIN_VERSION = "1.0.21"
+PLUGIN_VERSION_NAME = "Beta 21"
 
 # BETA 20: Import new architecture modules
 try:
@@ -893,6 +897,9 @@ class CanvasLegendDockWidget(QDockWidget):
         self.auto_update_enabled = True
         self.debug_mode = False  # Debug mode disabled by default
         
+        # Version logging using centralized variable
+        self.debug_print(f"PLUGIN: Starting {PLUGIN_VERSION_NAME} (v{PLUGIN_VERSION})")
+        
         # CRITICAL: Initialize protection flags
         self._applying_legend = False  # Prevent recreation loops
         self._last_apply_time = 0  # Throttle rapid applies
@@ -1745,9 +1752,48 @@ class CanvasLegendDockWidget(QDockWidget):
             self._beta20_enabled):
             try:
                 self.debug_print("BETA 20: Using SymbolDataExtractor for legend items")
-                return self._symbol_data_extractor.extract_legend_data()
+                legend_data = self._symbol_data_extractor.extract_legend_data()
+                
+                # Convert LayerSymbolInfo objects to dict format for compatibility
+                converted_items = []
+                for layer_info in legend_data:
+                    if isinstance(layer_info, LayerSymbolInfo):
+                        # Convert LayerSymbolInfo to dict format
+                        item_dict = {
+                            'layer_name': layer_info.layer_name,
+                            'layer_id': layer_info.layer_id,
+                            'name': layer_info.layer_name,  # Legacy compatibility
+                            'type': 'layer',
+                            'layer': layer_info.layer,
+                            'visible': True,
+                            'is_group_child': False,
+                            'symbols': []
+                        }
+                        
+                        # Convert symbols
+                        for symbol_info in layer_info.symbols:
+                            symbol_dict = {
+                                'label': symbol_info.get('label', layer_info.layer_name),
+                                'layer_type': symbol_info.get('layer_type', 'unknown'),
+                                'geometry_type': symbol_info.get('geometry_type', 'unknown'),
+                                'color': symbol_info.get('color', QColor('gray')),
+                                'type': symbol_info.get('type', 'unknown'),
+                                'symbol': symbol_info.get('symbol')
+                            }
+                            item_dict['symbols'].append(symbol_dict)
+                        
+                        converted_items.append(item_dict)
+                    else:
+                        # Already in dict format, use as-is
+                        converted_items.append(layer_info)
+                
+                self.debug_print(f"BETA 20: Converted {len(converted_items)} layer items")
+                return converted_items
+                
             except Exception as e:
                 self.debug_print(f"BETA 20: Error in SymbolDataExtractor, falling back to legacy: {e}")
+                import traceback
+                traceback.print_exc()
                 # Continue with legacy system
         
         # Legacy system

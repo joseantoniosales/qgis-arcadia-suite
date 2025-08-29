@@ -21,15 +21,21 @@ from ..utils import get_arcadia_setting, set_arcadia_setting
 
 
 class CanvasLegendOverlay(QWidget):
-    """Widget for displaying legend overlay on canvas"""
+    """Widget for displaying legend overlay on canvas ONLY"""
     
     def __init__(self, canvas, parent=None):
-        # Set canvas as parent to limit overlay to canvas area only
-        super().__init__(canvas)  # Canvas as parent instead of generic parent
+        # CRITICAL: Set canvas as parent and configure for canvas-only overlay
+        super().__init__(canvas)  # Canvas as direct parent
         self.canvas = canvas
-        # Removed WindowStaysOnTopHint to prevent overlay on composer/other windows
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
+        
+        # Configure widget to be canvas-only overlay
+        self.setWindowFlags(Qt.Widget)  # Use Widget instead of Tool to limit to parent
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_NoSystemBackground, False)
+        
+        # Ensure widget stays within canvas bounds
+        self.setParent(canvas)
+        
         self.legend_items = []
         self.settings = {}
         self.symbol_size = 16  # Size for legend symbols
@@ -319,12 +325,7 @@ class CanvasLegendOverlay(QWidget):
     
     def draw_symbol_safe(self, painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type='unknown'):
         """Draw symbol with multiple fallback methods and crash protection"""
-        # Check if we're in a sensitive state (painting or resizing)
-        if hasattr(self, '_painting') and self._painting:
-            self.debug_print("    -> Skipping symbol draw: painting in progress")
-            painter.fillRect(symbol_rect, QColor('lightgray'))
-            return
-            
+        # Only skip if we're in a dangerous resize operation, not during normal painting
         if hasattr(self, '_resizing') and self._resizing:
             self.debug_print("    -> Skipping symbol draw: resizing in progress")
             painter.fillRect(symbol_rect, QColor('lightgray'))
@@ -627,7 +628,7 @@ class CanvasLegendDialog(QDialog):
         
     def setupUi(self):
         """Set up the user interface"""
-        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 11'))
+        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 12'))
         self.setMinimumSize(400, 600)
         
         layout = QVBoxLayout(self)
@@ -1417,8 +1418,7 @@ class CanvasLegendDialog(QDialog):
         if not self.legend_overlay:
             return
             
-        # Get canvas geometry in global coordinates
-        canvas_global_pos = self.canvas.mapToGlobal(self.canvas.rect().topLeft())
+        # Get canvas size (local coordinates since overlay is child of canvas)
         canvas_size = self.canvas.size()
         
         # Use safe resize method
@@ -1427,10 +1427,10 @@ class CanvasLegendDialog(QDialog):
         self.legend_overlay._safe_resize(target_width, target_height)
         
         # Wait a moment for resize to complete before positioning
-        QTimer.singleShot(20, lambda: self._complete_positioning(canvas_global_pos, canvas_size))
+        QTimer.singleShot(20, lambda: self._complete_positioning_canvas_local(canvas_size))
         
-    def _complete_positioning(self, canvas_global_pos, canvas_size):
-        """Complete the positioning after resize"""
+    def _complete_positioning_canvas_local(self, canvas_size):
+        """Complete the positioning in canvas local coordinates"""
         if not self.legend_overlay:
             return
             
@@ -1440,24 +1440,29 @@ class CanvasLegendDialog(QDialog):
         x_offset = self.x_offset_spin.value()
         y_offset = self.y_offset_spin.value()
         
-        # Calculate position relative to canvas, not main window
+        # Calculate position relative to canvas (local coordinates)
         if 'top' in position and 'left' in position:
-            x = canvas_global_pos.x() + x_offset
-            y = canvas_global_pos.y() + y_offset
+            x = x_offset
+            y = y_offset
         elif 'top' in position and 'right' in position:
-            x = canvas_global_pos.x() + canvas_size.width() - overlay_size.width() - x_offset
-            y = canvas_global_pos.y() + y_offset
+            x = canvas_size.width() - overlay_size.width() - x_offset
+            y = y_offset
         elif 'bottom' in position and 'left' in position:
-            x = canvas_global_pos.x() + x_offset
-            y = canvas_global_pos.y() + canvas_size.height() - overlay_size.height() - y_offset
+            x = x_offset
+            y = canvas_size.height() - overlay_size.height() - y_offset
         elif 'bottom' in position and 'right' in position:
-            x = canvas_global_pos.x() + canvas_size.width() - overlay_size.width() - x_offset
-            y = canvas_global_pos.y() + canvas_size.height() - overlay_size.height() - y_offset
+            x = canvas_size.width() - overlay_size.width() - x_offset
+            y = canvas_size.height() - overlay_size.height() - y_offset
         else:  # Custom position
-            x = canvas_global_pos.x() + x_offset
-            y = canvas_global_pos.y() + y_offset
+            x = x_offset
+            y = y_offset
             
+        # Ensure overlay stays within canvas bounds
+        x = max(0, min(x, canvas_size.width() - overlay_size.width()))
+        y = max(0, min(y, canvas_size.height() - overlay_size.height()))
+        
         self.legend_overlay.move(x, y)
+        self.debug_print(f"Overlay positioned at canvas coordinates: ({x}, {y})")
         
     def export_current_view(self):
         """Export current canvas view with legend"""

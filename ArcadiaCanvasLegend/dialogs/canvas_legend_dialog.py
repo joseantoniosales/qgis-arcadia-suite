@@ -197,20 +197,30 @@ class CanvasLegendOverlay(QWidget):
                     geometry_type = symbol_info.get('geometry_type', 'unknown')
                     label = symbol_info.get('label', layer_name)
                     text_only = symbol_info.get('text_only', False)
+                    is_header = symbol_info.get('is_header', False)
                     
-                    self.debug_print(f"  Drawing symbol {i} for {layer_name}: type={layer_type}, geom={geometry_type}, has_symbol={symbol is not None}, text_only={text_only}")
+                    self.debug_print(f"  Drawing symbol {i} for {layer_name}: type={layer_type}, geom={geometry_type}, has_symbol={symbol is not None}, text_only={text_only}, is_header={is_header}")
                     
-                    # Draw symbol only if not text_only
-                    if not text_only:
+                    # Handle header items (layer names for categorized/graduated/rules)
+                    if is_header:
+                        painter.setPen(QColor('black'))
+                        painter.setFont(QFont('Arial', 10, QFont.Bold))
+                        painter.drawText(padding, y_offset + 15, label)
+                        self.debug_print(f"  - Header drawn for: {label}")
+                        y_offset += line_height
+                        continue
+                    
+                    # Draw symbol only if not text_only and not header
+                    if not text_only and not is_header:
                         self.draw_symbol_safe(painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type)
                     else:
-                        self.debug_print(f"  - Skipping symbol draw for text-only layer: {label}")
+                        self.debug_print(f"  - Skipping symbol draw for text-only/header layer: {label}")
                     
                     # Draw label with better positioning
                     painter.setPen(QColor('black'))
                     painter.setFont(QFont('Arial', 9))
                     # Adjust text position for text-only items (no symbol space needed)
-                    text_x = padding + (symbol_width + 15 if not text_only else 5)
+                    text_x = padding + (symbol_width + 15 if not text_only and not is_header else 5)
                     painter.drawText(text_x, y_offset + 15, label)
                     self.debug_print(f"  - Symbol drawn for: {label}")
                     y_offset += line_height
@@ -251,18 +261,43 @@ class CanvasLegendOverlay(QWidget):
         try:
             self.debug_print(f"    draw_symbol_safe: layer_type={layer_type}, geometry_type={geometry_type}, has_symbol={symbol is not None}")
             
-            # CRITICAL: Validate symbol before ANY operation to prevent crashes
+            # CRITICAL: Advanced symbol validation with timeout protection
             if symbol and layer_type != 'raster':
-                # Pre-validate symbol to catch corrupted symbols that cause crashes
+                # Multi-level validation to catch ALL types of corrupted symbols
+                is_symbol_safe = False
                 try:
-                    # Test basic symbol properties that might crash
-                    _ = symbol.type()  # This can crash with corrupted symbols
-                    _ = hasattr(symbol, 'asImage')  # Safe property check
-                    self.debug_print(f"    -> Symbol validation passed")
+                    # Level 1: Basic existence and type check
+                    if symbol is None:
+                        self.debug_print(f"    -> Symbol is None")
+                        raise Exception("Symbol is None")
+                    
+                    # Level 2: Test critical properties that can crash
+                    symbol_type = symbol.type()  # Can crash
+                    symbol_layer_count = symbol.symbolLayerCount() if hasattr(symbol, 'symbolLayerCount') else 0
+                    
+                    # Level 3: Test color access (another crash point)
+                    test_color = symbol.color() if hasattr(symbol, 'color') else QColor('gray')
+                    
+                    # Level 4: Test size access
+                    if hasattr(symbol, 'size'):
+                        test_size = symbol.size()
+                    
+                    # Level 5: Check if symbol has any symbol layers (empty symbols crash)
+                    if symbol_layer_count == 0:
+                        self.debug_print(f"    -> Symbol has no layers, treating as unsafe")
+                        raise Exception("Symbol has no layers")
+                    
+                    self.debug_print(f"    -> Symbol validation passed: type={symbol_type}, layers={symbol_layer_count}")
+                    is_symbol_safe = True
+                    
                 except Exception as validation_error:
-                    self.debug_print(f"    -> CRITICAL: Symbol validation failed: {validation_error}")
-                    # Corrupt symbol detected - use color fallback immediately
-                    painter.fillRect(symbol_rect, symbol_color or QColor('red'))
+                    self.debug_print(f"    -> CRITICAL: Advanced symbol validation failed: {validation_error}")
+                    is_symbol_safe = False
+                
+                # If symbol failed validation, use safe fallback
+                if not is_symbol_safe:
+                    self.debug_print(f"    -> Using safe color fallback for corrupted symbol")
+                    painter.fillRect(symbol_rect, symbol_color or QColor('lightgray'))
                     return
                 
                 # Method 1: Try asImage (best for getting actual rendered symbol)
@@ -519,7 +554,7 @@ class CanvasLegendDialog(QDialog):
         
     def setupUi(self):
         """Set up the user interface"""
-        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 09'))
+        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 10'))
         self.setMinimumSize(400, 600)
         
         layout = QVBoxLayout(self)
@@ -1087,46 +1122,37 @@ class CanvasLegendDialog(QDialog):
                         self.debug_print(f"-> No symbol in singleSymbol renderer")
                         
                 elif renderer_type == 'categorizedSymbol':
-                    # Categorized renderer - with crash protection
+                    # Categorized renderer - with crash protection and layer name
                     self.debug_print(f"-> Processing categorizedSymbol renderer")
                     try:
                         categories = renderer.categories()
                         self.debug_print(f"-> Found {len(categories)} categories")
+                        
+                        # Add layer name as header for categorized symbols
+                        symbols.append({
+                            'label': f"{layer.name()} (Categories)",
+                            'symbol': None,
+                            'color': QColor('darkblue'),
+                            'layer_type': 'vector_header',
+                            'geometry_type': geometry_type,
+                            'is_header': True
+                        })
                         
                         for i, category in enumerate(categories):
                             try:
                                 if not category.renderState():  # Skip disabled categories
                                     continue
                                     
-                                # Safely get symbol with validation
-                                symbol = None
-                                try:
-                                    symbol = category.symbol()
-                                    if symbol is None:
-                                        self.debug_print(f"-> Category {i}: symbol is None")
-                                        continue
-                                        
-                                    # Test if symbol is valid by checking basic properties
-                                    _ = symbol.type()  # This might crash if symbol is invalid
-                                    self.debug_print(f"-> Category {i}: symbol is valid")
-                                    
-                                except Exception as symbol_error:
-                                    self.debug_print(f"-> Category {i}: Invalid symbol detected: {symbol_error}")
-                                    symbol = None
+                                # Safely get symbol with advanced validation
+                                symbol = self._safe_get_symbol(category.symbol, f"Category {i}")
+                                if symbol is None:
                                     continue
                                 
                                 label = category.label() if category.label() else str(category.value())
-                                
-                                # Safely get color
-                                symbol_color = QColor('green')  # Default
-                                try:
-                                    if symbol and hasattr(symbol, 'color'):
-                                        symbol_color = symbol.color()
-                                except:
-                                    self.debug_print(f"-> Category {i}: Failed to get symbol color")
+                                symbol_color = self._safe_get_symbol_color(symbol, QColor('green'))
                                 
                                 symbols.append({
-                                    'label': label,
+                                    'label': f"  └ {label}",  # Indent category items
                                     'symbol': symbol,
                                     'color': symbol_color,
                                     'layer_type': 'vector',
@@ -1148,49 +1174,145 @@ class CanvasLegendDialog(QDialog):
                             'layer_type': 'vector_error',
                             'geometry_type': geometry_type
                         })
-                            
+                        
                 elif renderer_type == 'graduatedSymbol':
-                    # Graduated renderer
-                    for range_item in renderer.ranges():
+                    # Graduated renderer - with layer name header
+                    self.debug_print(f"-> Processing graduatedSymbol renderer")
+                    try:
+                        ranges = renderer.ranges()
+                        self.debug_print(f"-> Found {len(ranges)} ranges")
+                        
+                        # Add layer name as header
                         symbols.append({
-                            'label': range_item.label(),
-                            'symbol': range_item.symbol(),
-                            'color': range_item.symbol().color() if hasattr(range_item.symbol(), 'color') else QColor('orange'),
-                            'layer_type': 'vector',
+                            'label': f"{layer.name()} (Graduated)",
+                            'symbol': None,
+                            'color': QColor('darkorange'),
+                            'layer_type': 'vector_header',
+                            'geometry_type': geometry_type,
+                            'is_header': True
+                        })
+                        
+                        for i, range_item in enumerate(ranges):
+                            try:
+                                symbol = self._safe_get_symbol(range_item.symbol, f"Range {i}")
+                                if symbol is None:
+                                    continue
+                                    
+                                label = range_item.label() if range_item.label() else f"Range {i+1}"
+                                symbol_color = self._safe_get_symbol_color(symbol, QColor('orange'))
+                                
+                                symbols.append({
+                                    'label': f"  └ {label}",
+                                    'symbol': symbol,
+                                    'color': symbol_color,
+                                    'layer_type': 'vector',
+                                    'geometry_type': geometry_type
+                                })
+                                
+                            except Exception as range_error:
+                                self.debug_print(f"-> Range {i}: Error processing range: {range_error}")
+                                continue
+                                
+                    except Exception as renderer_error:
+                        self.debug_print(f"-> Error processing graduated renderer: {renderer_error}")
+                        symbols.append({
+                            'label': f"{layer.name()} (Graduated - Error)",
+                            'symbol': None,
+                            'color': QColor('red'),
+                            'layer_type': 'vector_error',
                             'geometry_type': geometry_type
                         })
                         
                 elif renderer_type == 'RuleRenderer':
-                    # Rule-based renderer
-                    root_rule = renderer.rootRule()
-                    if root_rule:
-                        for rule in root_rule.children():
-                            if rule.isActive() and rule.symbol():
-                                label = rule.label() or rule.filterExpression() or 'Rule'
-                                symbols.append({
-                                    'label': label,
-                                    'symbol': rule.symbol(),
-                                    'color': rule.symbol().color() if hasattr(rule.symbol(), 'color') else QColor('purple'),
-                                    'layer_type': 'vector',
-                                    'geometry_type': geometry_type
-                                })
-                else:
-                    # Fallback for other renderer types
-                    symbol = getattr(renderer, 'symbol', lambda: None)()
-                    if symbol:
+                    # Rule-based renderer - with layer name header
+                    self.debug_print(f"-> Processing RuleRenderer")
+                    try:
+                        root_rule = renderer.rootRule()
+                        if root_rule:
+                            # Add layer name as header
+                            symbols.append({
+                                'label': f"{layer.name()} (Rules)",
+                                'symbol': None,
+                                'color': QColor('purple'),
+                                'layer_type': 'vector_header',
+                                'geometry_type': geometry_type,
+                                'is_header': True
+                            })
+                            
+                            rules = root_rule.children()
+                            for i, rule in enumerate(rules):
+                                try:
+                                    if rule.isActive() and rule.symbol():
+                                        symbol = self._safe_get_symbol(rule.symbol, f"Rule {i}")
+                                        if symbol is None:
+                                            continue
+                                            
+                                        label = rule.label() or rule.filterExpression() or f'Rule {i+1}'
+                                        symbol_color = self._safe_get_symbol_color(symbol, QColor('purple'))
+                                        
+                                        symbols.append({
+                                            'label': f"  └ {label}",
+                                            'symbol': symbol,
+                                            'color': symbol_color,
+                                            'layer_type': 'vector',
+                                            'geometry_type': geometry_type
+                                        })
+                                        
+                                except Exception as rule_error:
+                                    self.debug_print(f"-> Rule {i}: Error processing rule: {rule_error}")
+                                    continue
+                                    
+                    except Exception as renderer_error:
+                        self.debug_print(f"-> Error processing rule renderer: {renderer_error}")
                         symbols.append({
-                            'label': layer.name(),
-                            'symbol': symbol,
-                            'color': symbol.color() if hasattr(symbol, 'color') else QColor('red'),
-                            'layer_type': 'vector',
+                            'label': f"{layer.name()} (Rules - Error)",
+                            'symbol': None,
+                            'color': QColor('red'),
+                            'layer_type': 'vector_error',
                             'geometry_type': geometry_type
                         })
-                    else:
+                else:
+                    # Fallback for other renderer types (pointDisplacement, heatmapRenderer, etc.)
+                    self.debug_print(f"-> Processing unknown renderer type: {renderer_type}")
+                    try:
+                        # Try to get symbol from renderer using different methods
+                        symbol = None
+                        
+                        # Method 1: Direct symbol() method with safe getter
+                        if hasattr(renderer, 'symbol'):
+                            symbol = self._safe_get_symbol(renderer.symbol, f"Renderer {renderer_type}")
+                        
+                        # Method 2: Try sourceSymbol() for some renderer types
+                        elif hasattr(renderer, 'sourceSymbol'):
+                            symbol = self._safe_get_symbol(renderer.sourceSymbol, f"Renderer {renderer_type}")
+                        
+                        if symbol:
+                            symbol_color = self._safe_get_symbol_color(symbol, QColor('gray'))
+                            symbols.append({
+                                'label': f"{layer.name()} ({renderer_type})",
+                                'symbol': symbol,
+                                'color': symbol_color,
+                                'layer_type': 'vector',
+                                'geometry_type': geometry_type
+                            })
+                        else:
+                            # No symbol found, create simple representation
+                            symbols.append({
+                                'label': f"{layer.name()} ({renderer_type})",
+                                'symbol': None,
+                                'color': QColor('lightgray'),
+                                'layer_type': 'vector_simple',
+                                'geometry_type': geometry_type
+                            })
+                            
+                    except Exception as renderer_error:
+                        self.debug_print(f"-> Error processing unknown renderer: {renderer_error}")
+                        # Ultimate fallback: gray rectangle
                         symbols.append({
-                            'label': layer.name(),
+                            'label': f"{layer.name()} (Unknown Renderer)",
                             'symbol': None,
-                            'color': QColor('gray'),
-                            'layer_type': 'vector',
+                            'color': QColor('lightgray'),
+                            'layer_type': 'vector_fallback',
                             'geometry_type': geometry_type
                         })
             else:
@@ -1259,6 +1381,49 @@ class CanvasLegendDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, self.tr('Error'), 
                                self.tr('Error exporting view: {}').format(str(e)))
+    
+    def _safe_get_symbol(self, symbol_func, context="unknown"):
+        """Safely get symbol with comprehensive validation"""
+        try:
+            if callable(symbol_func):
+                symbol = symbol_func()
+            else:
+                symbol = symbol_func
+                
+            if symbol is None:
+                self.debug_print(f"-> {context}: symbol is None")
+                return None
+                
+            # Multi-level validation
+            # Level 1: Type check (can crash)
+            symbol_type = symbol.type()
+            
+            # Level 2: Layer count check (empty symbols crash)
+            if hasattr(symbol, 'symbolLayerCount'):
+                layer_count = symbol.symbolLayerCount()
+                if layer_count == 0:
+                    self.debug_print(f"-> {context}: symbol has no layers")
+                    return None
+            
+            # Level 3: Test color access
+            if hasattr(symbol, 'color'):
+                test_color = symbol.color()
+            
+            self.debug_print(f"-> {context}: symbol validation passed")
+            return symbol
+            
+        except Exception as symbol_error:
+            self.debug_print(f"-> {context}: Invalid symbol detected: {symbol_error}")
+            return None
+    
+    def _safe_get_symbol_color(self, symbol, default_color):
+        """Safely get symbol color with fallback"""
+        try:
+            if symbol and hasattr(symbol, 'color'):
+                return symbol.color()
+        except Exception as e:
+            self.debug_print(f"-> Failed to get symbol color: {e}")
+        return default_color
             
     def export_to_clipboard(self):
         """Export canvas with legend to clipboard"""

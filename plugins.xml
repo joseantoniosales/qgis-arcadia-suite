@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
-    <pyqgis_plugin name="ArcadiaWFSDownloader" version="1.0.0">
+    <pyqgis_plugin name="ArcadiaWFSDownloader" version="1.1.0">
         <description>Arcadia WFS Downloader - Descarga y gestiona datos de servicios WFS con opciones avanzadas de filtrado y configuración.</description>
         <about>Este complemento permite a los usuarios conectarse a servicios WFS, explorar sus capas, aplicar filtros espaciales y de atributos, y descargar los datos en varios formatos. Parte de la Arcadia Suite.</about>
-        <version>1.0.0</version>
+        <version>1.1.0</version>
         <qgis_minimum_version>3.16</qgis_minimum_version>
-        <author_name>Tu Nombre o Equipo</author_name>
-        <email>tu.email@ejemplo.com</email>
+        <author_name>José Antonio Sales</author_name>
+        <email>jasales.gis@gmail.com</email>
         <homepage>https://github.com/joseantoniosales/qgis-arcadia-suite</homepage>
         <tracker>https://github.com/joseantoniosales/qgis-arcadia-suite/issues</tracker>
         <repository>https://github.com/joseantoniosales/qgis-arcadia-suite</repository>
@@ -22,8 +22,8 @@
         <about>This plugin allows users to display and configure map legends overlay on the QGIS canvas. Features include position and style configuration, text formatting options, background and frame customization, canvas-to-composition conversion, and export to clipboard or PNG. Part of the comprehensive Arcadia Suite for QGIS.</about>
         <version>1.0.0</version>
         <qgis_minimum_version>3.22</qgis_minimum_version>
-        <author_name>Arcadia Suite Development Team</author_name>
-        <email>info@arcadiasuite.com</email>
+        <author_name>joseantoniosales@gmail.com</author_name>
+        <email>jasales.gis@gmail.com</email>
         <homepage>https://github.com/joseantoniosales/qgis-arcadia-suite</homepage>
         <tracker>https://github.com/joseantoniosales/qgis-arcadia-suite/issues</tracker>
         <repository>https://github.com/joseantoniosales/qgis-arcadia-suite</repository>

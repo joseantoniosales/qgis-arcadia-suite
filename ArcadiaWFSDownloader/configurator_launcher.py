@@ -3,6 +3,7 @@
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.core import QgsProcessingAlgorithm, QgsProcessingParameterBoolean, QgsProcessingContext
 from .configurator_dialog import WFSSourceManager
+
 from qgis import processing
 
 class WFSSourceManagerAlgorithm(QgsProcessingAlgorithm):
@@ -10,6 +11,7 @@ class WFSSourceManagerAlgorithm(QgsProcessingAlgorithm):
 
     def tr(self, text):
         return QCoreApplication.translate('WFSSourceManagerAlgorithm', text)
+
 
     def createInstance(self):
         return WFSSourceManagerAlgorithm()

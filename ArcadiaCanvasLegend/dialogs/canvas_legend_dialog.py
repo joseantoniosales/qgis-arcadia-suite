@@ -81,35 +81,45 @@ class CanvasLegendOverlay(QWidget):
         if not self.legend_items:
             return
             
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        
-        # Draw background if enabled
-        if self.settings.get('show_background', True):
-            bg_color = QColor(self.settings.get('background_color', 'white'))
-            bg_color.setAlpha(self.settings.get('background_alpha', 200))
-            painter.fillRect(self.rect(), bg_color)
+        painter = QPainter()
+        if not painter.begin(self):
+            print("Error: Failed to begin painting on legend overlay")
+            return
             
-        # Draw frame if enabled
-        if self.settings.get('show_frame', True):
-            frame_color = QColor(self.settings.get('frame_color', 'black'))
-            frame_width = self.settings.get('frame_width', 1)
-            painter.setPen(frame_color)
-            painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
+        try:
+            painter.setRenderHint(QPainter.Antialiasing)
             
-        # Draw title if enabled
-        y_offset = 10
-        if self.settings.get('show_title', True):
-            title_text = self.settings.get('title_text', 'Map Legend')
-            painter.setPen(QColor('black'))
-            painter.setFont(QFont('Arial', 12, QFont.Bold))
-            painter.drawText(10, y_offset + 15, title_text)
-            y_offset += 25
-            
-        # Draw legend items
-        painter.setFont(QFont('Arial', 10))
-        for item in self.legend_items:
-            y_offset = self.draw_legend_item(painter, item, y_offset)
+            # Draw background if enabled
+            if self.settings.get('show_background', True):
+                bg_color = QColor(self.settings.get('background_color', 'white'))
+                bg_color.setAlpha(self.settings.get('background_alpha', 200))
+                painter.fillRect(self.rect(), bg_color)
+                
+            # Draw frame if enabled
+            if self.settings.get('show_frame', True):
+                frame_color = QColor(self.settings.get('frame_color', 'black'))
+                frame_width = self.settings.get('frame_width', 1)
+                painter.setPen(frame_color)
+                painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
+                
+            # Draw title if enabled
+            y_offset = 10
+            if self.settings.get('show_title', True):
+                title_text = self.settings.get('title_text', 'Map Legend - Beta 03')
+                painter.setPen(QColor('black'))
+                painter.setFont(QFont('Arial', 12, QFont.Bold))
+                painter.drawText(10, y_offset + 15, title_text)
+                y_offset += 25
+                
+            # Draw legend items
+            painter.setFont(QFont('Arial', 10))
+            for item in self.legend_items:
+                y_offset = self.draw_legend_item(painter, item, y_offset)
+                
+        except Exception as e:
+            print(f"Error in paintEvent: {e}")
+        finally:
+            painter.end()
             
     def draw_legend_item(self, painter, item, y_offset):
         """Draw individual legend item"""
@@ -143,40 +153,71 @@ class CanvasLegendOverlay(QWidget):
                     
                     if symbol:
                         try:
-                            # Create a render context for better symbol rendering
+                            # Method 1: Try to use drawPreviewIcon (most reliable)
+                            if hasattr(symbol, 'drawPreviewIcon'):
+                                try:
+                                    icon_pixmap = symbol.drawPreviewIcon(None, QSize(symbol_width, self.symbol_size))
+                                    if icon_pixmap and not icon_pixmap.isNull():
+                                        painter.drawPixmap(symbol_rect, icon_pixmap)
+                                        continue
+                                except Exception:
+                                    pass
+                            
+                            # Method 2: Try direct color rendering
+                            if hasattr(symbol, 'color'):
+                                try:
+                                    color = symbol.color()
+                                    if color.isValid():
+                                        painter.fillRect(symbol_rect, color)
+                                        continue
+                                except Exception:
+                                    pass
+                            
+                            # Method 3: Create separate pixmap for complex rendering
                             pixmap = QPixmap(symbol_width, self.symbol_size)
                             pixmap.fill(Qt.transparent)
                             
-                            symbol_painter = QPainter(pixmap)
-                            symbol_painter.setRenderHint(QPainter.Antialiasing)
-                            
-                            # Create a simple render context
-                            context = symbol_painter
-                            
-                            # Render the symbol with proper size
-                            if hasattr(symbol, 'startRender') and hasattr(symbol, 'renderPoint'):
-                                symbol.startRender(context)
-                                # Render at center of the rectangle
-                                center_point = QPointF(symbol_width/2, self.symbol_size/2)
-                                symbol.renderPoint(center_point, context)
-                                symbol.stopRender(context)
-                            elif hasattr(symbol, 'drawPreviewIcon'):
-                                # Alternative method for some symbol types
-                                icon_pixmap = symbol.drawPreviewIcon(painter, QSize(symbol_width, self.symbol_size))
-                                pixmap = icon_pixmap
-                            
-                            symbol_painter.end()
-                            
-                            # Draw the rendered symbol
-                            painter.drawPixmap(symbol_rect, pixmap)
-                            
+                            symbol_painter = QPainter()
+                            if symbol_painter.begin(pixmap):
+                                try:
+                                    symbol_painter.setRenderHint(QPainter.Antialiasing)
+                                    
+                                    # Try renderPoint method
+                                    if hasattr(symbol, 'startRender') and hasattr(symbol, 'renderPoint'):
+                                        symbol.startRender(symbol_painter)
+                                        center_point = QPointF(symbol_width/2, self.symbol_size/2)
+                                        symbol.renderPoint(center_point, symbol_painter)
+                                        symbol.stopRender(symbol_painter)
+                                    else:
+                                        # Simple fallback - fill with color
+                                        if hasattr(symbol, 'color'):
+                                            symbol_painter.fillRect(0, 0, symbol_width, self.symbol_size, symbol.color())
+                                        else:
+                                            symbol_painter.fillRect(0, 0, symbol_width, self.symbol_size, QColor('lightblue'))
+                                            
+                                except Exception as render_error:
+                                    print(f"Error in symbol rendering: {render_error}")
+                                    # Emergency fallback within the painter context
+                                    symbol_painter.fillRect(0, 0, symbol_width, self.symbol_size, QColor('lightgray'))
+                                finally:
+                                    symbol_painter.end()
+                                    
+                                # Draw the rendered symbol
+                                painter.drawPixmap(symbol_rect, pixmap)
+                            else:
+                                # Failed to begin painting - use direct color fallback
+                                raise Exception("Failed to begin symbol painter")
+                                
                         except Exception as e:
-                            # Fallback to colored rectangle if symbol rendering fails
+                            # Fallback to colored rectangle if all symbol rendering fails
                             print(f"Error rendering symbol: {e}")
                             if symbol_color:
                                 painter.fillRect(symbol_rect, symbol_color)
                             elif hasattr(symbol, 'color'):
-                                painter.fillRect(symbol_rect, symbol.color())
+                                try:
+                                    painter.fillRect(symbol_rect, symbol.color())
+                                except:
+                                    painter.fillRect(symbol_rect, QColor('lightblue'))
                             else:
                                 painter.fillRect(symbol_rect, QColor('lightblue'))
                     elif symbol_color:
@@ -287,7 +328,7 @@ class CanvasLegendDialog(QDialog):
         
     def setupUi(self):
         """Set up the user interface"""
-        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration'))
+        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 03'))
         self.setMinimumSize(400, 600)
         
         layout = QVBoxLayout(self)
@@ -458,7 +499,7 @@ class CanvasLegendDialog(QDialog):
         
         title_layout.addWidget(QLabel(self.tr('Title Text:')), 1, 0)
         self.title_text = QLineEdit()
-        self.title_text.setText(self.tr('Map Legend'))
+        self.title_text.setText(self.tr('Map Legend - Beta 03'))
         title_layout.addWidget(self.title_text, 1, 1)
         
         layout.addWidget(title_group)
@@ -849,8 +890,45 @@ class CanvasLegendDialog(QDialog):
         
     def capture_canvas_with_legend(self):
         """Capture canvas with legend overlay as pixmap"""
-        canvas_pixmap = self.canvas.grab()
-        return canvas_pixmap
+        try:
+            # Get canvas pixmap safely
+            canvas_pixmap = self.canvas.grab()
+            
+            if self.legend_overlay and self.legend_overlay.isVisible():
+                # Create combined pixmap
+                combined_pixmap = QPixmap(canvas_pixmap.size())
+                combined_pixmap.fill(Qt.transparent)
+                
+                painter = QPainter()
+                if painter.begin(combined_pixmap):
+                    try:
+                        # Draw canvas
+                        painter.drawPixmap(0, 0, canvas_pixmap)
+                        
+                        # Draw legend overlay at its position
+                        legend_pixmap = self.legend_overlay.grab()
+                        legend_pos = self.legend_overlay.pos()
+                        canvas_pos = self.canvas.mapToGlobal(self.canvas.rect().topLeft())
+                        
+                        # Calculate relative position
+                        relative_x = legend_pos.x() - canvas_pos.x()
+                        relative_y = legend_pos.y() - canvas_pos.y()
+                        
+                        painter.drawPixmap(relative_x, relative_y, legend_pixmap)
+                        
+                    except Exception as e:
+                        print(f"Error combining pixmaps: {e}")
+                    finally:
+                        painter.end()
+                        
+                return combined_pixmap
+            else:
+                return canvas_pixmap
+                
+        except Exception as e:
+            print(f"Error capturing canvas: {e}")
+            # Return a simple canvas grab as fallback
+            return self.canvas.grab()
         
     def cleanup(self):
         """Clean up resources when plugin is unloaded"""

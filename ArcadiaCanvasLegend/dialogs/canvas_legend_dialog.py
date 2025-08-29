@@ -43,6 +43,22 @@ class CanvasLegendOverlay(QWidget):
         self._painting = False  # Flag to prevent recursive painting
         self._resizing = False  # Flag to prevent painting during resize
         self._update_scheduled = False  # Flag to prevent multiple update calls
+        self._destroyed = False  # CRITICAL: Flag to prevent access after destruction
+        
+    def closeEvent(self, event):
+        """Override close event to set destroyed flag"""
+        self._destroyed = True
+        super().closeEvent(event)
+        
+    def hideEvent(self, event):
+        """Override hide event to set destroyed flag"""
+        self._destroyed = True
+        super().hideEvent(event)
+        
+    def deleteLater(self):
+        """Override deleteLater to set destroyed flag immediately"""
+        self._destroyed = True
+        super().deleteLater()
         
     def debug_print(self, message):
         """Print debug message only if debug mode is enabled"""
@@ -151,6 +167,11 @@ class CanvasLegendOverlay(QWidget):
         
     def paintEvent(self, event):
         """Paint the legend overlay with crash protection"""
+        # CRITICAL: Check if overlay is destroyed before any painting
+        if getattr(self, '_destroyed', False):
+            self.debug_print("Skipping paintEvent: overlay is destroyed")
+            return
+            
         # Prevent recursive painting
         if self._painting or self._resizing:
             self.debug_print("Skipping paintEvent: already painting or resizing")
@@ -163,6 +184,11 @@ class CanvasLegendOverlay(QWidget):
         painter = QPainter()
         
         try:
+            # Additional check after QPainter creation
+            if getattr(self, '_destroyed', False):
+                self.debug_print("Overlay destroyed during painter setup - aborting")
+                return
+                
             if not painter.begin(self):
                 self.debug_print("Error: Failed to begin painting on legend overlay")
                 return
@@ -266,6 +292,7 @@ class CanvasLegendOverlay(QWidget):
                     label = symbol_info.get('label', layer_name)
                     text_only = symbol_info.get('text_only', False)
                     is_header = symbol_info.get('is_header', False)
+                    error_type = symbol_info.get('error_type', None)  # For placeholder detection
                     
                     self.debug_print(f"  Drawing symbol {i} for {layer_name}: type={layer_type}, geom={geometry_type}, has_symbol={symbol is not None}, text_only={text_only}, is_header={is_header}")
                     
@@ -280,7 +307,11 @@ class CanvasLegendOverlay(QWidget):
                     
                     # Draw symbol only if not text_only and not header
                     if not text_only and not is_header:
-                        self.draw_symbol_safe(painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type)
+                        # Check if we need to draw a placeholder
+                        if error_type:
+                            self.draw_symbol_placeholder(painter, symbol_rect, error_type)
+                        else:
+                            self.draw_symbol_safe(painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type)
                     else:
                         self.debug_print(f"  - Skipping symbol draw for text-only/header layer: {label}")
                     
@@ -325,6 +356,11 @@ class CanvasLegendOverlay(QWidget):
     
     def draw_symbol_safe(self, painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type='unknown'):
         """Draw symbol with multiple fallback methods and crash protection"""
+        # CRITICAL: Check if overlay is destroyed
+        if getattr(self, '_destroyed', False):
+            self.debug_print("    -> Skipping symbol draw: overlay is destroyed")
+            return
+            
         # Only skip if we're in a dangerous resize operation, not during normal painting
         if hasattr(self, '_resizing') and self._resizing:
             self.debug_print("    -> Skipping symbol draw: resizing in progress")
@@ -352,7 +388,15 @@ class CanvasLegendOverlay(QWidget):
                     # Level 3: Test color access (another crash point)
                     test_color = symbol.color() if hasattr(symbol, 'color') else QColor('gray')
                     
-                    # Level 4: Test size access
+                    # Level 4: DEFENSIVE - Test parent layer validity
+                    if hasattr(symbol, 'layer'):
+                        parent_layer = getattr(symbol, 'layer', None)
+                        if parent_layer and hasattr(parent_layer, 'isValid'):
+                            if not parent_layer.isValid():
+                                self.debug_print(f"    -> Symbol's parent layer is invalid")
+                                raise Exception("Parent layer invalid")
+                    
+                    # Level 5: Test size access
                     if hasattr(symbol, 'size'):
                         test_size = symbol.size()
                     
@@ -544,9 +588,9 @@ class CanvasLegendOverlay(QWidget):
                 
         except Exception as e:
             print(f"    -> ERROR in draw_symbol_safe: {e}")
-            # Emergency fallback
-            painter.fillRect(symbol_rect, QColor('lightgray'))
-            method_used = "emergency_fallback"
+            # Emergency fallback - use placeholder system
+            self.draw_symbol_placeholder(painter, symbol_rect, "corrupted")
+            method_used = "emergency_placeholder"
             
         print(f"    -> Final method used: {method_used}")
 
@@ -594,13 +638,60 @@ class CanvasLegendDockWidget(QDockWidget):
             QgsProject.instance().layersAdded.connect(self.on_layers_changed)
             QgsProject.instance().layersRemoved.connect(self.on_layers_changed)
             
-            # Connect to layer style changes (use different signal)
-            # QgsProject.instance().layerStyleChanged.connect(self.on_layer_style_changed)
-            # Use legendLayersAdded instead as it's more reliable
+            # CRITICAL: Connect to layer style changes to detect symbology changes
+            QgsProject.instance().layerStyleChanged.connect(self.on_layer_style_changed)
+            
+            # Additional signals for comprehensive detection
             QgsProject.instance().legendLayersAdded.connect(self.on_layers_changed)
+            
+            # Connect to each existing layer's signals for style changes
+            self.connect_existing_layer_signals()
             
         except Exception as e:
             self.debug_print(f"Error connecting layer signals: {e}")
+            
+    def connect_existing_layer_signals(self):
+        """Connect to existing layers' individual signals"""
+        try:
+            for layer in QgsProject.instance().mapLayers().values():
+                if hasattr(layer, 'rendererChanged'):
+                    layer.rendererChanged.connect(self.on_renderer_changed)
+                if hasattr(layer, 'styleChanged'):
+                    layer.styleChanged.connect(self.on_renderer_changed)
+        except Exception as e:
+            self.debug_print(f"Error connecting existing layer signals: {e}")
+            
+    def on_renderer_changed(self):
+        """Handle renderer/symbology changes - FORCE OVERLAY RECREATION"""
+        self.debug_print("Renderer changed detected - forcing overlay recreation")
+        if self.legend_overlay and self.legend_overlay.isVisible():
+            # CRITICAL: Destroy and recreate overlay to prevent crashes
+            self.force_overlay_recreation()
+            
+    def force_overlay_recreation(self):
+        """Force complete recreation of overlay to prevent symbol corruption crashes"""
+        try:
+            self.debug_print("Force recreating overlay due to symbology changes")
+            
+            # Hide and destroy existing overlay
+            if self.legend_overlay:
+                self.legend_overlay.hide()
+                self.legend_overlay.deleteLater()
+                self.legend_overlay = None
+            
+            # Small delay to ensure cleanup before recreation
+            QTimer.singleShot(200, self.recreate_overlay_delayed)
+            
+        except Exception as e:
+            self.debug_print(f"Error in force overlay recreation: {e}")
+            
+    def recreate_overlay_delayed(self):
+        """Recreate overlay after cleanup delay"""
+        try:
+            if self.auto_update_enabled:
+                self.apply_legend()  # This will create new overlay
+        except Exception as e:
+            self.debug_print(f"Error in delayed overlay recreation: {e}")
             
     def on_layer_visibility_changed(self, node):
         """Handle layer visibility changes"""
@@ -619,27 +710,19 @@ class CanvasLegendDockWidget(QDockWidget):
             QTimer.singleShot(100, self.update_legend_auto)
             
     def update_legend_auto(self):
-        """Update legend automatically without user interaction"""
+        """Update legend automatically without user interaction - USE RECREATION STRATEGY"""
         try:
             if self.legend_overlay and self.legend_overlay.isVisible():
-                # Get current settings
-                settings = self.get_current_settings()
-                
-                # Get updated legend items
-                legend_items = self.get_legend_items()
-                
-                # Update overlay
-                self.legend_overlay.update_legend_content(legend_items, settings)
-                
-                # Reposition overlay if needed
-                self.position_overlay()
+                # For symbology changes, use complete recreation strategy
+                self.debug_print("Auto-update triggered - using recreation strategy for safety")
+                self.apply_legend()  # This will safely recreate the overlay
                 
         except Exception as e:
             self.debug_print(f"Error auto-updating legend: {e}")
         
     def setupUi(self):
         """Set up the user interface"""
-        self.setWindowTitle('Arcadia Canvas Legend - Beta 13 (Dock)')
+        self.setWindowTitle('Arcadia Canvas Legend - Beta 15 (Defensive + Placeholders)')
         
         # Main layout for central widget
         main_layout = QVBoxLayout(self.central_widget)
@@ -944,9 +1027,36 @@ class CanvasLegendDockWidget(QDockWidget):
     def apply_legend(self):
         """Apply the legend overlay to canvas"""
         try:
-            # Create or update legend overlay
-            if not self.legend_overlay:
-                self.legend_overlay = CanvasLegendOverlay(self.canvas)
+            # CRITICAL: Safely destroy existing overlay before creating new one
+            if self.legend_overlay:
+                self.debug_print("Destroying existing overlay before creating new one")
+                
+                # Mark as destroyed to prevent any ongoing operations
+                if hasattr(self.legend_overlay, '_destroyed'):
+                    self.legend_overlay._destroyed = True
+                
+                # Hide and cleanup
+                self.legend_overlay.hide()
+                self.legend_overlay.deleteLater()
+                self.legend_overlay = None
+                
+                # Small delay to ensure Qt processes the deletion
+                QTimer.singleShot(50, self._create_new_overlay)
+                return
+            else:
+                self._create_new_overlay()
+                
+        except Exception as e:
+            QMessageBox.critical(self, self.tr('Error'), 
+                               self.tr('Error applying legend: {}').format(str(e)))
+                               
+    def _create_new_overlay(self):
+        """Create new overlay after ensuring old one is destroyed"""
+        try:
+            self.debug_print("Creating new legend overlay")
+            
+            # Create new overlay
+            self.legend_overlay = CanvasLegendOverlay(self.canvas)
                 
             # Get current settings
             settings = self.get_current_settings()
@@ -966,8 +1076,9 @@ class CanvasLegendDockWidget(QDockWidget):
             self.save_settings()
             
         except Exception as e:
+            self.debug_print(f"Error creating new overlay: {e}")
             QMessageBox.critical(self, self.tr('Error'), 
-                               self.tr('Error applying legend: {}').format(str(e)))
+                               self.tr('Error creating legend overlay: {}').format(str(e)))
             
     def get_current_settings(self):
         """Get current settings from UI"""
@@ -1408,13 +1519,14 @@ class CanvasLegendDockWidget(QDockWidget):
                             
                     except Exception as renderer_error:
                         self.debug_print(f"-> Error processing unknown renderer: {renderer_error}")
-                        # Ultimate fallback: gray rectangle
+                        # Ultimate fallback: Use placeholder
                         symbols.append({
-                            'label': f"{layer.name()} (Unknown Renderer)",
+                            'label': f"{layer.name()} (Error: {type(renderer_error).__name__})",
                             'symbol': None,
                             'color': QColor('lightgray'),
                             'layer_type': 'vector_fallback',
-                            'geometry_type': geometry_type
+                            'geometry_type': geometry_type,
+                            'error_type': 'corrupted'  # Flag for placeholder type
                         })
             else:
                 # Other layer types (mesh, plugin, etc.)
@@ -1532,6 +1644,35 @@ class CanvasLegendDockWidget(QDockWidget):
         except Exception as symbol_error:
             self.debug_print(f"-> {context}: Invalid symbol detected: {symbol_error}")
             return None
+    
+    def draw_symbol_placeholder(self, painter, symbol_rect, error_type="unknown"):
+        """Draw a placeholder for corrupted/invalid symbols"""
+        try:
+            # Different placeholder styles based on error type
+            if error_type == "corrupted":
+                # Red X for corrupted symbols
+                painter.fillRect(symbol_rect, QColor(255, 200, 200, 150))  # Light red background
+                painter.setPen(QPen(QColor('red'), 2))
+                painter.drawLine(symbol_rect.topLeft(), symbol_rect.bottomRight())
+                painter.drawLine(symbol_rect.topRight(), symbol_rect.bottomLeft())
+            elif error_type == "missing":
+                # Gray question mark for missing symbols
+                painter.fillRect(symbol_rect, QColor(200, 200, 200, 150))  # Light gray background
+                painter.setPen(QColor('black'))
+                painter.setFont(QFont('Arial', 10, QFont.Bold))
+                painter.drawText(symbol_rect, Qt.AlignCenter, "?")
+            else:
+                # Default placeholder - simple gray rectangle
+                painter.fillRect(symbol_rect, QColor(180, 180, 180, 150))
+                painter.setPen(QColor('darkgray'))
+                painter.drawRect(symbol_rect)
+                
+            self.debug_print(f"    -> Drew {error_type} placeholder")
+            
+        except Exception as e:
+            # Ultimate fallback - just fill with gray
+            self.debug_print(f"    -> Placeholder drawing failed: {e}")
+            painter.fillRect(symbol_rect, QColor('lightgray'))
     
     def _safe_get_symbol_color(self, symbol, default_color):
         """Safely get symbol color with fallback"""

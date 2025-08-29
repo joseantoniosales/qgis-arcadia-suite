@@ -1,5 +1,6 @@
 """
 Dialog for configuring canvas legend overlay
+BETA 20 REFACTORED - Implements cache strategy and separation of responsibilities
 Handles all user interface interactions for legend configuration
 """
 
@@ -18,6 +19,15 @@ from qgis.gui import QgsColorButton, QgsFontButton
 
 import os
 from ..utils import get_arcadia_setting, set_arcadia_setting
+
+# BETA 20: Import new architecture modules
+try:
+    from ..tools.symbol_cache_manager import SymbolCacheManager
+    from ..tools.symbol_data_extractor import SymbolDataExtractor, LayerSymbolInfo
+    BETA20_MODULES_AVAILABLE = True
+except ImportError as e:
+    print(f"BETA 20: Failed to import new modules: {e}")
+    BETA20_MODULES_AVAILABLE = False
 
 
 class CanvasLegendOverlay(QWidget):
@@ -44,6 +54,11 @@ class CanvasLegendOverlay(QWidget):
         self._resizing = False  # Flag to prevent painting during resize
         self._update_scheduled = False  # Flag to prevent multiple update calls
         self._destroyed = False  # CRITICAL: Flag to prevent access after destruction
+        
+        # BETA 20: Initialize cache tracking
+        self._current_cache_keys = set()
+        self._symbol_cache = None  # Will be set by parent dialog
+        self._beta20_enabled = False  # Will be enabled by parent dialog
         
     def closeEvent(self, event):
         """Override close event to set destroyed flag"""
@@ -166,19 +181,98 @@ class CanvasLegendOverlay(QWidget):
             QTimer.singleShot(10, lambda: setattr(self, '_resizing', False))
         
     def paintEvent(self, event):
-        """Paint the legend overlay with crash protection"""
+        """Paint the legend overlay - BETA 20 SIMPLIFIED with cache system"""
         # CRITICAL: Ultimate crash protection - multiple safety checks
         if getattr(self, '_destroyed', False):
             self.debug_print("ABORT: Overlay marked as destroyed")
             return
             
-        # BETA 18: Check for style loading protection
+        # BETA 20: Use simplified cache-based painting if available
+        if self._beta20_enabled and self._symbol_cache:
+            self._paint_with_cache_beta20(event)
+            return
+            
+        # Fallback to legacy system with all protections
+        self._paint_legacy_system(event)
+    
+    def _paint_with_cache_beta20(self, event):
+        """BETA 20: Simplified painting using cache system"""
+        if getattr(self, '_destroyed', False):
+            return
+            
+        # Prevent recursive painting
+        if self._painting or self._resizing:
+            self.debug_print("BETA 20: Skipping paint - already painting or resizing")
+            return
+            
+        if not self.legend_items:
+            return
+            
+        # Set painting flag
+        self._painting = True
+        painter = QPainter()
+        
+        try:
+            if not painter.begin(self):
+                self.debug_print("BETA 20: Failed to begin painting")
+                return
+                
+            painter.setRenderHint(QPainter.Antialiasing)
+            
+            # Draw background and frame (no API access needed)
+            self._draw_background_and_frame_beta20(painter)
+            
+            # Draw legend items using cache
+            y_offset = self._draw_title_beta20(painter)
+            
+            for item in self.legend_items:
+                y_offset = self._draw_legend_item_beta20(painter, item, y_offset)
+                
+        except Exception as e:
+            self.debug_print(f"BETA 20: Error in cache-based painting: {e}")
+        finally:
+            if painter.isActive():
+                painter.end()
+            self._painting = False
+    
+    def _paint_legacy_system(self, event):
+        """Legacy painting system with all Beta 19 protections"""
+            
+        # BETA 19: Multi-layer protection against QML style loading crashes
+        # Protection Layer 1: Check our own style loading flag
+        if getattr(self, '_style_loading_detected', False):
+            self.debug_print("BETA 19: ABORT: Style loading detected (self) - skipping paint")
+            return
+            
+        # Protection Layer 2: Check parent dialog for style loading
         dialog = self.parent()
         while dialog and not hasattr(dialog, '_style_loading_detected'):
             dialog = dialog.parent()
         
         if dialog and getattr(dialog, '_style_loading_detected', False):
-            self.debug_print("BETA 18: ABORT: Style loading detected - skipping paint to prevent crash")
+            self.debug_print("BETA 19: ABORT: Style loading detected (parent) - skipping paint")
+            return
+            
+        # Protection Layer 3: Global layer renderer stability check
+        try:
+            project = QgsProject.instance()
+            if project:
+                layers = project.mapLayers().values()
+                for layer in layers:
+                    if hasattr(layer, 'renderer') and layer.renderer():
+                        # Quick renderer stability check
+                        try:
+                            renderer = layer.renderer()
+                            if not renderer:
+                                self.debug_print("BETA 19: ABORT: Layer has null renderer - style change in progress")
+                                return
+                            # Check if renderer is accessible
+                            _ = renderer.type()
+                        except:
+                            self.debug_print("BETA 19: ABORT: Renderer access failed - style change in progress")
+                            return
+        except:
+            self.debug_print("BETA 19: ABORT: Project layer check failed - unsafe state")
             return
             
         # Check if parent canvas still exists and is valid
@@ -275,6 +369,113 @@ class CanvasLegendOverlay(QWidget):
                 self.update()
         except Exception as e:
             self.debug_print(f"Error in delayed update: {e}")
+    
+    # BETA 20: Cache-based drawing methods
+    
+    def _draw_background_and_frame_beta20(self, painter):
+        """BETA 20: Draw background and frame without API access"""
+        try:
+            # Draw background if enabled
+            if self.settings.get('show_background', True):
+                bg_color = QColor(self.settings.get('background_color', 'white'))
+                bg_color.setAlpha(self.settings.get('background_alpha', 200))
+                painter.fillRect(self.rect(), bg_color)
+                
+            # Draw frame if enabled
+            if self.settings.get('show_frame', True):
+                frame_color = QColor(self.settings.get('frame_color', 'black'))
+                painter.setPen(frame_color)
+                painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
+        except Exception as e:
+            self.debug_print(f"BETA 20: Error drawing background/frame: {e}")
+    
+    def _draw_title_beta20(self, painter):
+        """BETA 20: Draw title and return y_offset"""
+        y_offset = 10
+        try:
+            if self.settings.get('show_title', True):
+                title_text = self.settings.get('title_text', 'Map Legend')
+                painter.setPen(QColor('black'))
+                painter.setFont(QFont('Arial', 12, QFont.Bold))
+                painter.drawText(10, y_offset + 15, title_text)
+                y_offset += 25
+        except Exception as e:
+            self.debug_print(f"BETA 20: Error drawing title: {e}")
+        
+        return y_offset
+    
+    def _draw_legend_item_beta20(self, painter, item, y_offset):
+        """BETA 20: Draw legend item using cache system"""
+        try:
+            line_height = 25
+            padding = 10
+            symbol_width = self.symbol_size
+            symbol_height = self.symbol_size
+            
+            layer_name = item.get('layer_name', 'Unknown Layer')
+            layer_id = item.get('layer_id', '')
+            symbols = item.get('symbols', [])
+            
+            if not symbols:
+                # No symbols, draw simple entry
+                painter.setPen(QColor('black'))
+                painter.setFont(QFont('Arial', 9))
+                painter.drawText(padding, y_offset + 15, layer_name)
+                return y_offset + line_height
+            
+            # Draw each symbol for this layer
+            current_y = y_offset
+            for symbol_info in symbols:
+                symbol_rect = QRect(padding, current_y + 5, symbol_width, symbol_height)
+                
+                # Try to get symbol from cache
+                symbol_pixmap = None
+                if self._symbol_cache:
+                    symbol_data = {
+                        'type': symbol_info.get('type', 'unknown'),
+                        'color': symbol_info.get('color', QColor('gray')),
+                        'symbol': symbol_info.get('symbol')
+                    }
+                    
+                    cache_key = f"{layer_id}_{symbol_info.get('label', 'default')}_{symbol_width}x{symbol_height}"
+                    self._current_cache_keys.add(cache_key)
+                    
+                    symbol_pixmap = self._symbol_cache.get_symbol_pixmap(
+                        layer_id, symbol_data, (symbol_width, symbol_height)
+                    )
+                
+                # Draw symbol
+                if symbol_pixmap and not symbol_pixmap.isNull():
+                    # Draw cached symbol
+                    painter.drawPixmap(symbol_rect, symbol_pixmap)
+                else:
+                    # Draw placeholder while loading
+                    if self._symbol_cache:
+                        placeholder = self._symbol_cache.get_placeholder_pixmap((symbol_width, symbol_height))
+                        painter.drawPixmap(symbol_rect, placeholder)
+                    else:
+                        # Simple fallback
+                        painter.fillRect(symbol_rect, QColor('lightgray'))
+                
+                # Draw label
+                label = symbol_info.get('label', layer_name)
+                text_x = padding + symbol_width + 15
+                painter.setPen(QColor('black'))
+                painter.setFont(QFont('Arial', 9))
+                painter.drawText(text_x, current_y + 15, label)
+                
+                current_y += line_height
+            
+            return current_y
+            
+        except Exception as e:
+            self.debug_print(f"BETA 20: Error drawing legend item: {e}")
+            return y_offset + 25  # Fallback spacing
+    
+    def set_beta20_components(self, symbol_cache, enabled=True):
+        """Set Beta 20 components from parent dialog"""
+        self._symbol_cache = symbol_cache
+        self._beta20_enabled = enabled
             
     def draw_legend_item(self, painter, item, y_offset):
         """Draw individual legend item"""
@@ -379,10 +580,16 @@ class CanvasLegendOverlay(QWidget):
         return y_offset
     
     def draw_symbol_safe(self, painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type='unknown'):
-        """Draw symbol with multiple fallback methods and crash protection"""
+        """Draw symbol with multiple fallback methods and crash protection - BETA 19"""
         # CRITICAL: Check if overlay is destroyed
         if getattr(self, '_destroyed', False):
             self.debug_print("    -> Skipping symbol draw: overlay is destroyed")
+            return
+            
+        # BETA 19: Check for style loading state before any symbol operations
+        if getattr(self, '_style_loading_detected', False):
+            self.debug_print("    -> Skipping symbol draw: style loading detected")
+            painter.fillRect(symbol_rect, QColor('lightgray'))
             return
             
         # Only skip if we're in a dangerous resize operation, not during normal painting
@@ -620,7 +827,7 @@ class CanvasLegendOverlay(QWidget):
 
 
 class CanvasLegendDockWidget(QDockWidget):
-    """Main dock widget for canvas legend configuration"""
+    """Main dock widget for canvas legend configuration - BETA 20 REFACTORED"""
     
     def __init__(self, iface, parent=None):
         super().__init__("Arcadia Canvas Legend", parent)
@@ -634,11 +841,14 @@ class CanvasLegendDockWidget(QDockWidget):
         self._applying_legend = False  # Prevent recreation loops
         self._last_apply_time = 0  # Throttle rapid applies
         
-        # BETA 18: Protección específica para carga de estilos
+        # BETA 18-19: Protección específica para carga de estilos
         self._style_loading_detected = False
         self._last_style_change_time = 0
         self._style_safety_delay = 5000  # 5 segundos de espera tras cambios de estilo
         self._properties_dialog_open = False
+        
+        # BETA 20: Initialize new architecture components
+        self._initialize_beta20_components()
         
         # Create central widget
         self.central_widget = QWidget()
@@ -655,6 +865,48 @@ class CanvasLegendDockWidget(QDockWidget):
         
         # Connect close event to cleanup
         self.closeEvent = self.custom_close_event
+        
+    def _initialize_beta20_components(self):
+        """Initialize Beta 20 architecture components"""
+        try:
+            if BETA20_MODULES_AVAILABLE:
+                # Initialize symbol cache manager
+                self.symbol_cache = SymbolCacheManager(max_cache_size=1000)
+                self.symbol_cache.cache_updated.connect(self._on_symbol_cache_updated)
+                
+                # Initialize symbol data extractor
+                self.symbol_extractor = SymbolDataExtractor(debug_mode=self.debug_mode)
+                
+                # Beta 20 flags
+                self._beta20_enabled = True
+                self._legend_data_cache = []
+                self._last_extraction_time = 0
+                
+                self.debug_print("BETA 20: New architecture components initialized successfully")
+            else:
+                # Fallback to legacy system
+                self._beta20_enabled = False
+                self.symbol_cache = None
+                self.symbol_extractor = None
+                self.debug_print("BETA 20: Fallback to legacy system - new modules not available")
+                
+        except Exception as e:
+            self._beta20_enabled = False
+            self.symbol_cache = None
+            self.symbol_extractor = None
+            self.debug_print(f"BETA 20: Failed to initialize new components: {e}")
+    
+    def _on_symbol_cache_updated(self, cache_key: str):
+        """Callback when symbol cache is updated"""
+        try:
+            if self.legend_overlay and self.legend_overlay.isVisible():
+                # Only update if we're using Beta 20 system
+                if self._beta20_enabled and hasattr(self, '_current_cache_keys'):
+                    if cache_key in self._current_cache_keys:
+                        # This symbol was updated, refresh the overlay
+                        QTimer.singleShot(50, self._refresh_overlay_beta20)
+        except Exception as e:
+            self.debug_print(f"BETA 20: Error in cache update callback: {e}")
         
     def debug_print(self, message):
         """Print debug message only if debug mode is enabled"""
@@ -696,14 +948,14 @@ class CanvasLegendDockWidget(QDockWidget):
             self.debug_print(f"Error connecting existing layer signals: {e}")
             
     def on_renderer_changed(self):
-        """Handle renderer/symbology changes - BETA 18: PROTECCIÓN PARA CARGA DE ESTILOS"""
+        """Handle renderer/symbology changes - BETA 19: ULTRA-PROTECCIÓN PARA CARGA QML"""
         try:
-            # BETA 18: Detectar carga de estilos y activar protección extendida
+            # BETA 19: Detectar carga de estilos con protección ultra-agresiva
             from qgis.PyQt.QtCore import QTimer
             current_time = QTimer()
             current_ms = current_time.remainingTime() if hasattr(current_time, 'remainingTime') else 0
             
-            self.debug_print("BETA 18: Renderer changed detected - checking for style loading")
+            self.debug_print("BETA 19: Renderer changed detected - activating ultra-protection")
             
             # Marcar que se detectó cambio de estilo
             self._style_loading_detected = True
@@ -713,43 +965,61 @@ class CanvasLegendDockWidget(QDockWidget):
             sender_layer = self.sender()
             is_raster_change = False
             is_vector_style_change = False
+            is_qml_loading = False
             
             if sender_layer and hasattr(sender_layer, '__class__'):
                 layer_class_name = sender_layer.__class__.__name__
                 if 'Raster' in layer_class_name:
                     is_raster_change = True
-                    self.debug_print("BETA 18: RASTER renderer change detected")
+                    self.debug_print("BETA 19: RASTER renderer change detected")
                 elif 'Vector' in layer_class_name:
                     is_vector_style_change = True
-                    self.debug_print("BETA 18: VECTOR style change detected - potentially from QML loading")
-            
-            # BETA 18: Para cambios de estilo de vectores (QML loading), esperar más tiempo
-            if is_vector_style_change:
-                self.debug_print("BETA 18: Suspected QML style loading - using extended delay")
-                if self.legend_overlay:
-                    self.legend_overlay.setVisible(False)  # Ocultar temporalmente
-                
-                # Programar actualización con delay extendido
-                QTimer.singleShot(self._style_safety_delay, self._safe_post_style_update)
-                return
-            
-            # Para raster o cambios normales, usar el flujo existente con protección
-            if is_raster_change:
-                self.debug_print("BETA 18: RASTER renderer change - using raster safety protocol")
-                
-            # Resto del método existente...
-            
-            if self.legend_overlay and self.legend_overlay.isVisible():
-                if is_raster_change:
-                    # For raster changes, use longer delay and more safety checks
-                    self.debug_print("Raster change - using extended recreation delay")
-                    self.force_overlay_recreation_raster_safe()
-                else:
-                    # Normal recreation for vector changes
-                    self.force_overlay_recreation()
+                    self.debug_print("BETA 19: VECTOR style change detected")
                     
+                    # BETA 19: Check if this might be QML loading by inspecting renderer type changes
+                    try:
+                        if hasattr(sender_layer, 'renderer') and sender_layer.renderer():
+                            renderer = sender_layer.renderer()
+                            renderer_type = renderer.type() if hasattr(renderer, 'type') else "unknown"
+                            if renderer_type in ['categorizedSymbol', 'graduatedSymbol', 'RuleRenderer']:
+                                is_qml_loading = True
+                                self.debug_print("BETA 19: QML LOADING DETECTED - Complex renderer change")
+                    except:
+                        # If we can't check the renderer, assume it's dangerous
+                        is_qml_loading = True
+                        self.debug_print("BETA 19: Renderer check failed - assuming QML loading")
+            
+            # BETA 19: Para cambios QML, usar protección ultra-extendida (10 segundos)
+            if is_qml_loading:
+                safety_delay = 10000  # 10 segundos para QML
+                self.debug_print("BETA 19: QML loading detected - using 10 second protection")
+            elif is_vector_style_change:
+                safety_delay = 7000   # 7 segundos para cambios de vector
+                self.debug_print("BETA 19: Vector style change - using 7 second protection")
+            elif is_raster_change:
+                safety_delay = 5000   # 5 segundos para raster
+                self.debug_print("BETA 19: Raster change - using 5 second protection")
+            else:
+                safety_delay = 3000   # 3 segundos por defecto
+                self.debug_print("BETA 19: General change - using 3 second protection")
+            
+            # BETA 19: Ocultar overlay inmediatamente durante cambios peligrosos
+            if is_qml_loading or is_vector_style_change:
+                if self.legend_overlay:
+                    self.legend_overlay.setVisible(False)
+                    self.debug_print("BETA 19: Overlay hidden during dangerous style change")
+            
+            # Store safety delay and schedule restoration
+            self._style_safety_delay = safety_delay
+            QTimer.singleShot(self._style_safety_delay, self._safe_post_style_update)
+            
         except Exception as e:
-            self.debug_print(f"Error in on_renderer_changed: {e}")
+            self.debug_print(f"BETA 19: Error in renderer change handler: {e}")
+            # En caso de error, usar protección máxima
+            self._style_loading_detected = True
+            if hasattr(self, 'legend_overlay') and self.legend_overlay:
+                self.legend_overlay.setVisible(False)
+            QTimer.singleShot(10000, self._safe_post_style_update)  # 10 segundos de seguridad
             
     def force_overlay_recreation_raster_safe(self):
         """Force recreation with extended safety for raster layer changes"""
@@ -824,53 +1094,104 @@ class CanvasLegendDockWidget(QDockWidget):
             
     def on_layers_changed(self):
         """Handle layer addition/removal"""
+        # BETA 20: Clear entire cache when layers are added/removed
+        if (hasattr(self, '_symbol_cache') and 
+            hasattr(self, '_beta20_enabled') and 
+            self._beta20_enabled):
+            try:
+                self._symbol_cache.clear_cache()
+                self.debug_print("BETA 20: Cache cleared due to layer changes")
+            except Exception as e:
+                self.debug_print(f"BETA 20: Error clearing cache on layer changes: {e}")
+        
         if self.auto_update_enabled and self.legend_overlay and self.legend_overlay.isVisible():
             QTimer.singleShot(100, self.update_legend_auto)
             
     def on_layer_style_changed(self, layer_id):
         """Handle layer style changes"""
+        # BETA 20: Invalidate cache for this layer
+        if (hasattr(self, '_symbol_cache') and 
+            hasattr(self, '_beta20_enabled') and 
+            self._beta20_enabled):
+            try:
+                self._symbol_cache.invalidate_layer_cache(layer_id)
+                self.debug_print(f"BETA 20: Cache invalidated for layer {layer_id}")
+            except Exception as e:
+                self.debug_print(f"BETA 20: Error invalidating cache for layer {layer_id}: {e}")
+        
         if self.auto_update_enabled and self.legend_overlay and self.legend_overlay.isVisible():
             QTimer.singleShot(100, self.update_legend_auto)
     
     def _safe_post_style_update(self):
-        """BETA 18: Actualización segura después de cambios de estilo (especialmente QML loading)"""
+        """BETA 19: Actualización ultra-segura después de cambios de estilo QML"""
         try:
-            self.debug_print("BETA 18: Executing safe post-style update after delay")
+            self.debug_print("BETA 19: Executing ultra-safe post-style update after extended delay")
             
             # Reset style loading flag
             self._style_loading_detected = False
             
-            # Verificar que las capas estén estables antes de recrear
+            # BETA 19: Verificación exhaustiva de estabilidad de capas
             layers_stable = True
+            qml_layers_stable = True
+            
             try:
                 for layer in QgsProject.instance().mapLayers().values():
                     if not layer.isValid():
                         layers_stable = False
-                        self.debug_print(f"BETA 18: Layer {layer.name() if hasattr(layer, 'name') else 'unknown'} is not stable yet")
+                        self.debug_print(f"BETA 19: Layer {layer.name() if hasattr(layer, 'name') else 'unknown'} is not stable yet")
                         break
                         
                     # Check if layer has renderer and it's accessible
                     if hasattr(layer, 'renderer'):
                         try:
                             renderer = layer.renderer()
-                            if renderer and hasattr(renderer, 'symbol'):
-                                # Try to access symbol to verify it's stable
-                                test_symbol = renderer.symbol()
-                        except Exception as symbol_test_error:
-                            self.debug_print(f"BETA 18: Layer symbols not stable yet: {symbol_test_error}")
+                            if renderer and hasattr(renderer, 'type'):
+                                renderer_type = renderer.type()
+                                
+                                # BETA 19: Special check for complex renderers (QML types)
+                                if renderer_type in ['categorizedSymbol', 'graduatedSymbol', 'RuleRenderer']:
+                                    self.debug_print(f"BETA 19: Checking QML-type renderer stability: {renderer_type}")
+                                    
+                                    # Test symbol access for complex renderers
+                                    if hasattr(renderer, 'symbol'):
+                                        try:
+                                            test_symbol = renderer.symbol()
+                                            if test_symbol and hasattr(test_symbol, 'symbolLayerCount'):
+                                                layer_count = test_symbol.symbolLayerCount()
+                                                if layer_count == 0:
+                                                    qml_layers_stable = False
+                                                    self.debug_print(f"BETA 19: QML symbol not stable - no layers")
+                                                    break
+                                        except:
+                                            qml_layers_stable = False
+                                            self.debug_print(f"BETA 19: QML symbol access failed - not stable")
+                                            break
+                                            
+                                # Test general symbol access
+                                if hasattr(renderer, 'symbol'):
+                                    test_symbol = renderer.symbol()
+                        except Exception as renderer_error:
                             layers_stable = False
+                            self.debug_print(f"BETA 19: Renderer access failed for layer: {renderer_error}")
                             break
             except Exception as stability_check_error:
-                self.debug_print(f"BETA 18: Error checking layer stability: {stability_check_error}")
+                self.debug_print(f"BETA 19: Error checking layer stability: {stability_check_error}")
                 layers_stable = False
+                qml_layers_stable = False
             
+            # BETA 19: If QML layers are not stable, wait longer
+            if not qml_layers_stable:
+                self.debug_print("BETA 19: QML layers not stable yet, extending delay by 3 seconds")
+                QTimer.singleShot(3000, self._safe_post_style_update)
+                return
+                
             if not layers_stable:
-                self.debug_print("BETA 18: Layers not stable yet, extending delay")
-                QTimer.singleShot(2000, self._safe_post_style_update)  # Try again in 2 seconds
+                self.debug_print("BETA 19: General layers not stable yet, retrying in 2 seconds")
+                QTimer.singleShot(2000, self._safe_post_style_update)
                 return
             
             # Layers are stable, proceed with safe recreation
-            self.debug_print("BETA 18: Layers stable, proceeding with overlay recreation")
+            self.debug_print("BETA 19: All layers stable, proceeding with overlay recreation")
             
             # Show overlay again and recreate safely
             if self.legend_overlay:
@@ -1302,6 +1623,13 @@ class CanvasLegendDockWidget(QDockWidget):
             
             # Create new overlay
             self.legend_overlay = CanvasLegendOverlay(self.canvas)
+            
+            # BETA 20: Configure cache-based system if available
+            if hasattr(self, '_symbol_cache') and hasattr(self, '_beta20_enabled'):
+                self.legend_overlay.set_beta20_components(self._symbol_cache, self._beta20_enabled)
+                self.debug_print(f"BETA 20: Overlay configured with cache system (enabled: {self._beta20_enabled})")
+            else:
+                self.debug_print("BETA 20: Cache system not available, using legacy mode")
                 
             # Get current settings
             settings = self.get_current_settings()
@@ -1351,6 +1679,18 @@ class CanvasLegendDockWidget(QDockWidget):
         
     def get_legend_items(self):
         """Get legend items from current map layers"""
+        # BETA 20: Use new symbol data extractor if available
+        if (hasattr(self, '_symbol_data_extractor') and 
+            hasattr(self, '_beta20_enabled') and 
+            self._beta20_enabled):
+            try:
+                self.debug_print("BETA 20: Using SymbolDataExtractor for legend items")
+                return self._symbol_data_extractor.extract_legend_data()
+            except Exception as e:
+                self.debug_print(f"BETA 20: Error in SymbolDataExtractor, falling back to legacy: {e}")
+                # Continue with legacy system
+        
+        # Legacy system
         items = []
         try:
             # Get layer tree root

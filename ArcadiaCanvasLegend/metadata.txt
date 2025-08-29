@@ -2,7 +2,7 @@
 name=ArcadiaCanvasLegend
 qgisMinimumVersion=3.22
 description=Canvas Legend Overlay - Part of Arcadia Suite. Display customizable legends overlaid on the QGIS canvas with full style control and export capabilities.
-version=1.0.18
+version=1.0.20
 author=Arcadia Suite Development Team
 email=info@arcadiasuite.com
 about=This plugin allows users to display and configure map legends overlay on the QGIS canvas. Features include position and style configuration, text formatting options, background and frame customization, canvas-to-composition conversion, and export to clipboard or PNG. Part of the comprehensive Arcadia Suite for QGIS.
@@ -16,10 +16,26 @@ icon=icon.svg
 experimental=False
 deprecated=False
 server=False
-changelog=Beta 18: Protección específica para carga de estilos QML
-    - Detecta carga de archivos de estilo .qml
-    - Implementa delay de seguridad de 5 segundos tras cambios de simbología
-    - Oculta overlay temporalmente durante carga de estilos vectoriales
-    - Verifica estabilidad de capas antes de recrear overlay
-    - Protección específica en paintEvent para evitar crashes durante carga de estilos
-    - Manejo especializado para simbologías categorizadas complejas
+changelog=changelog=
+    1.0.20: BETA 20 - Complete architectural refactoring with cache-based symbol management
+    - New SymbolCacheManager with background symbol generation and thread-safe operations
+    - Introduced SymbolDataExtractor for centralized QGIS API access abstraction
+    - Cache-based rendering system with 1000-item capacity and automatic cleanup
+    - Separation of concerns: UI rendering isolated from QGIS API calls
+    - Background SymbolGeneratorWorker threads for non-blocking symbol creation
+    - Placeholder symbols during background generation process
+    - Automatic cache invalidation on layer style changes and layer additions/removals
+    - Graceful fallback to legacy system if cache components fail
+    - Enhanced stability through architectural redesign based on user crash analysis
+    1.0.19: BETA 19 - Ultra-agressive protection against QML style loading crashes
+    - Multi-layer protection during paintEvent with global renderer stability checks
+    - Extended safety delays (10 seconds for QML loading, 7 for vector changes, 5 for raster)
+    - Enhanced QML loading detection by renderer type analysis
+    - Improved symbol validation with complex renderer support
+    - Ultra-defensive overlay hiding during dangerous style operations
+    - Comprehensive layer stability verification before recreation
+    1.0.18: BETA 18 - Enhanced protection for QML style loading crashes with extended safety delays
+    1.0.17: BETA 17 - Multi-level crash protection and improved recreation algorithms
+    1.0.16: BETA 16 - Enhanced crash protection, anti-recreation loops, and defensive programming
+    1.0.15: BETA 15 - Improved dock widget integration and comprehensive crash protection
+    1.0.14: BETA 14 - Complete overlay recreation system with crash protection

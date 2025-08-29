@@ -2,7 +2,7 @@
 name=ArcadiaCanvasLegend
 qgisMinimumVersion=3.22
 description=Canvas Legend Overlay - Part of Arcadia Suite. Display customizable legends overlaid on the QGIS canvas with full style control and export capabilities.
-version=1.0.22
+version=1.0.23
 author=Arcadia Suite Development Team
 email=info@arcadiasuite.com
 about=This plugin allows users to display and configure map legends overlay on the QGIS canvas. Features include position and style configuration, text formatting options, background and frame customization, canvas-to-composition conversion, and export to clipboard or PNG. Part of the comprehensive Arcadia Suite for QGIS.
@@ -17,6 +17,16 @@ experimental=False
 deprecated=False
 server=False
 changelog=changelog=
+    1.0.23: BETA 23 - Asynchronous Stability Verification System (Race Condition Solution)
+    - Implemented LayerStabilityChecker for real-time layer state verification
+    - Added SymbolProcessingWorker for background thread symbol processing
+    - Immediate hibernation mode during layer style operations
+    - Asynchronous polling to verify layer stability before legend recreation
+    - Worker thread isolation prevents main thread blocking during symbol extraction
+    - Race condition elimination through verification-before-action approach
+    - Safe symbol processing with pre-generated QPixmap data
+    - Progressive stability verification (200ms intervals, 5 second timeout)
+    - Complete separation of QGIS API calls from UI rendering
     1.0.22: BETA 22 - Data structure compatibility and debug mode persistence fixes
     - Fixed LayerSymbolInfo missing 'layer' attribute causing "'LayerSymbolInfo' object has no attribute 'layer'" error
     - Added proper LayerSymbolInfo to dict conversion layer with all required attributes

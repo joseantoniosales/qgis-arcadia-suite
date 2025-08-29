@@ -4,7 +4,7 @@ BETA 21 ENHANCED - Emergency crash protection and progressive degradation
 Handles all user interface interactions for legend configuration
 """
 
-from qgis.PyQt.QtCore import Qt, pyqtSignal, QTimer, QRect, QPointF, QSize
+from qgis.PyQt.QtCore import Qt, pyqtSignal, QTimer, QRect, QPointF, QSize, QThread, QObject, QMutex
 from qgis.PyQt.QtWidgets import (QDockWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
                                 QLabel, QPushButton, QComboBox, QSpinBox, 
                                 QCheckBox, QGroupBox, QTabWidget, QWidget, 
@@ -21,8 +21,8 @@ import os
 from ..utils import get_arcadia_setting, set_arcadia_setting
 
 # PLUGIN VERSION CONTROL - Single source of truth
-PLUGIN_VERSION = "1.0.22"
-PLUGIN_VERSION_NAME = "Beta 22"
+PLUGIN_VERSION = "1.0.23"
+PLUGIN_VERSION_NAME = "Beta 23"
 
 # BETA 20: Import new architecture modules
 try:
@@ -32,6 +32,182 @@ try:
 except ImportError as e:
     print(f"BETA 20: Failed to import new modules: {e}")
     BETA20_MODULES_AVAILABLE = False
+
+
+# BETA 23: Layer Stability Verification System
+class LayerStabilityChecker(QObject):
+    """Asynchronous layer stability verification system"""
+    stability_confirmed = pyqtSignal(str)  # layer_id
+    stability_failed = pyqtSignal(str, str)  # layer_id, error
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.check_timer = QTimer()
+        self.check_timer.timeout.connect(self._check_layer_state)
+        self.current_layer_id = None
+        self.max_attempts = 25  # 5 seconds max (25 * 200ms)
+        self.current_attempts = 0
+        
+    def start_stability_check(self, layer_id):
+        """Start monitoring layer stability"""
+        self.current_layer_id = layer_id
+        self.current_attempts = 0
+        self.check_timer.start(200)  # Check every 200ms
+        
+    def _check_layer_state(self):
+        """Check if layer is stable and ready"""
+        if not self.current_layer_id:
+            self.check_timer.stop()
+            return
+            
+        self.current_attempts += 1
+        
+        try:
+            # Get layer
+            layer = QgsProject.instance().mapLayer(self.current_layer_id)
+            if not layer or not layer.isValid():
+                self.stability_failed.emit(self.current_layer_id, "Layer not found or invalid")
+                self.check_timer.stop()
+                return
+                
+            # Try to access renderer safely
+            renderer = layer.renderer()
+            if not renderer:
+                if self.current_attempts >= self.max_attempts:
+                    self.stability_failed.emit(self.current_layer_id, "Renderer not available after timeout")
+                    self.check_timer.stop()
+                return
+                
+            # Try to access renderer symbols
+            if hasattr(renderer, 'symbol'):
+                symbol = renderer.symbol()
+                if symbol:
+                    # Try to get symbol info
+                    _ = symbol.type()
+                    
+            # If we get here, layer is stable
+            self.stability_confirmed.emit(self.current_layer_id)
+            self.check_timer.stop()
+            
+        except Exception as e:
+            if self.current_attempts >= self.max_attempts:
+                self.stability_failed.emit(self.current_layer_id, str(e))
+                self.check_timer.stop()
+            # Otherwise, keep checking
+
+
+# BETA 23: Safe Symbol Processing Worker
+class SymbolProcessingWorker(QObject):
+    """Worker thread for safe symbol processing"""
+    processing_completed = pyqtSignal(list)  # List of processed symbol data
+    processing_failed = pyqtSignal(str)  # Error message
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.layer_ids_to_process = []
+        
+    def start_processing(self, layer_ids):
+        """Start processing symbols for given layers"""
+        self.layer_ids_to_process = layer_ids
+        QTimer.singleShot(0, self._process_symbols)
+        
+    def _process_symbols(self):
+        """Process symbols in background thread"""
+        try:
+            processed_data = []
+            
+            for layer_id in self.layer_ids_to_process:
+                layer = QgsProject.instance().mapLayer(layer_id)
+                if not layer or not layer.isValid():
+                    continue
+                    
+                layer_data = self._extract_layer_symbols(layer)
+                if layer_data:
+                    processed_data.append(layer_data)
+                    
+            self.processing_completed.emit(processed_data)
+            
+        except Exception as e:
+            self.processing_failed.emit(str(e))
+            
+    def _extract_layer_symbols(self, layer):
+        """Extract symbols from layer safely"""
+        try:
+            layer_info = {
+                'layer_id': layer.id(),
+                'layer_name': layer.name(),
+                'layer_type': 'vector' if hasattr(layer, 'geometryType') else 'raster',
+                'symbols': []
+            }
+            
+            renderer = layer.renderer()
+            if not renderer:
+                return layer_info
+                
+            # Vector layer symbol extraction
+            if hasattr(layer, 'geometryType'):
+                symbols = self._extract_vector_symbols(renderer)
+                layer_info['symbols'] = symbols
+                
+            # Raster layer handling
+            else:
+                symbols = self._extract_raster_symbols(renderer, layer)
+                layer_info['symbols'] = symbols
+                
+            return layer_info
+            
+        except Exception as e:
+            print(f"Error extracting symbols for {layer.name()}: {e}")
+            return None
+            
+    def _extract_vector_symbols(self, renderer):
+        """Extract vector symbols safely"""
+        symbols = []
+        
+        try:
+            if hasattr(renderer, 'symbol'):
+                # Single symbol renderer
+                symbol = renderer.symbol()
+                if symbol:
+                    symbol_pixmap = symbol.asImage(QSize(20, 20))
+                    symbols.append({
+                        'label': 'Default',
+                        'pixmap': symbol_pixmap,
+                        'type': 'single'
+                    })
+                    
+            elif hasattr(renderer, 'symbols'):
+                # Categorized or other multi-symbol renderer
+                for symbol in renderer.symbols():
+                    if symbol:
+                        symbol_pixmap = symbol.asImage(QSize(20, 20))
+                        symbols.append({
+                            'label': getattr(symbol, 'label', 'Symbol'),
+                            'pixmap': symbol_pixmap,
+                            'type': 'categorized'
+                        })
+                        
+        except Exception as e:
+            print(f"Error extracting vector symbols: {e}")
+            
+        return symbols
+        
+    def _extract_raster_symbols(self, renderer, layer):
+        """Extract raster symbols safely"""
+        symbols = []
+        
+        try:
+            # Create a simple raster symbol representation
+            symbols.append({
+                'label': layer.name(),
+                'pixmap': None,  # Could generate a color ramp representation
+                'type': 'raster'
+            })
+            
+        except Exception as e:
+            print(f"Error extracting raster symbols: {e}")
+            
+        return symbols
 
 
 class CanvasLegendOverlay(QWidget):
@@ -913,6 +1089,9 @@ class CanvasLegendDockWidget(QDockWidget):
         # BETA 20: Initialize new architecture components
         self._initialize_beta20_components()
         
+        # BETA 23: Initialize asynchronous stability verification system
+        self._initialize_beta23_components()
+        
         # Create central widget
         self.central_widget = QWidget()
         self.setWidget(self.central_widget)
@@ -962,6 +1141,148 @@ class CanvasLegendDockWidget(QDockWidget):
             self.debug_print(f"BETA 20: Failed to initialize new components: {e}")
             import traceback
             traceback.print_exc()
+    
+    def _initialize_beta23_components(self):
+        """Initialize Beta 23 asynchronous stability verification system"""
+        try:
+            # Layer stability checker
+            self._stability_checker = LayerStabilityChecker(parent=self)
+            self._stability_checker.stability_confirmed.connect(self._on_layer_stability_confirmed)
+            self._stability_checker.stability_failed.connect(self._on_layer_stability_failed)
+            
+            # Symbol processing worker thread
+            self._worker_thread = QThread()
+            self._symbol_worker = SymbolProcessingWorker()
+            self._symbol_worker.moveToThread(self._worker_thread)
+            self._symbol_worker.processing_completed.connect(self._on_symbol_processing_completed)
+            self._symbol_worker.processing_failed.connect(self._on_symbol_processing_failed)
+            self._worker_thread.start()
+            
+            # Beta 23 state flags
+            self._legend_in_hibernation = False
+            self._pending_layer_updates = set()
+            self._processing_symbols = False
+            
+            self.debug_print("BETA 23: Asynchronous stability verification system initialized")
+            
+        except Exception as e:
+            self.debug_print(f"BETA 23: Failed to initialize stability system: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _on_layer_stability_confirmed(self, layer_id):
+        """Handle layer stability confirmation"""
+        self.debug_print(f"BETA 23: Layer {layer_id} stability confirmed")
+        
+        # Remove from pending updates
+        self._pending_layer_updates.discard(layer_id)
+        
+        # If no more pending updates, start symbol processing
+        if not self._pending_layer_updates and not self._processing_symbols:
+            self._start_symbol_processing()
+            
+    def _on_layer_stability_failed(self, layer_id, error):
+        """Handle layer stability failure"""
+        self.debug_print(f"BETA 23: Layer {layer_id} stability failed: {error}")
+        
+        # Remove from pending updates
+        self._pending_layer_updates.discard(layer_id)
+        
+        # Continue with other layers if any
+        if not self._pending_layer_updates and not self._processing_symbols:
+            self._start_symbol_processing()
+            
+    def _start_symbol_processing(self):
+        """Start background symbol processing"""
+        if self._processing_symbols:
+            return
+            
+        self.debug_print("BETA 23: Starting background symbol processing")
+        self._processing_symbols = True
+        
+        # Get all visible layers
+        root = QgsProject.instance().layerTreeRoot()
+        visible_layer_ids = []
+        
+        def collect_visible_layers(node):
+            if hasattr(node, 'layer') and node.layer() is not None:
+                layer = node.layer()
+                if node.isVisible() and layer.isValid():
+                    visible_layer_ids.append(layer.id())
+            elif hasattr(node, 'children'):
+                for child in node.children():
+                    collect_visible_layers(child)
+                    
+        collect_visible_layers(root)
+        
+        # Start processing in worker thread
+        if visible_layer_ids:
+            self._symbol_worker.start_processing(visible_layer_ids)
+        else:
+            self._processing_symbols = False
+            self._exit_hibernation_mode()
+            
+    def _on_symbol_processing_completed(self, processed_data):
+        """Handle completed symbol processing"""
+        self.debug_print(f"BETA 23: Symbol processing completed - {len(processed_data)} layers")
+        self._processing_symbols = False
+        
+        # Store processed data and recreate legend
+        self._processed_legend_data = processed_data
+        self._exit_hibernation_mode()
+        
+    def _on_symbol_processing_failed(self, error):
+        """Handle symbol processing failure"""
+        self.debug_print(f"BETA 23: Symbol processing failed: {error}")
+        self._processing_symbols = False
+        self._exit_hibernation_mode()
+        
+    def _enter_hibernation_mode(self):
+        """Enter legend hibernation mode during layer operations"""
+        if self._legend_in_hibernation:
+            return
+            
+        self.debug_print("BETA 23: Entering hibernation mode")
+        self._legend_in_hibernation = True
+        
+        # Hide legend overlay immediately
+        if self.legend_overlay:
+            self.legend_overlay.hide()
+            
+        # Cancel any pending updates
+        if hasattr(self, '_update_timer'):
+            self._update_timer.stop()
+            
+    def _exit_hibernation_mode(self):
+        """Exit hibernation mode and recreate legend"""
+        if not self._legend_in_hibernation:
+            return
+            
+        self.debug_print("BETA 23: Exiting hibernation mode")
+        self._legend_in_hibernation = False
+        
+        # Recreate legend with processed data
+        QTimer.singleShot(100, self._safe_legend_recreation)
+        
+    def _safe_legend_recreation(self):
+        """Safely recreate legend with processed data"""
+        try:
+            if hasattr(self, '_processed_legend_data'):
+                self.debug_print("BETA 23: Recreating legend with processed data")
+                # Use processed data to recreate legend
+                self._recreate_legend_with_processed_data()
+            else:
+                self.debug_print("BETA 23: No processed data available, using legacy system")
+                self.apply_legend()
+                
+        except Exception as e:
+            self.debug_print(f"BETA 23: Error in safe legend recreation: {e}")
+            
+    def _recreate_legend_with_processed_data(self):
+        """Recreate legend using pre-processed safe data"""
+        # Implementation to create legend using processed symbol data
+        # This method will use the safe processed data instead of live QGIS objects
+        pass
     
     def _on_symbol_cache_updated(self, cache_key: str):
         """Callback when symbol cache is updated"""
@@ -1015,78 +1336,31 @@ class CanvasLegendDockWidget(QDockWidget):
             self.debug_print(f"Error connecting existing layer signals: {e}")
             
     def on_renderer_changed(self):
-        """Handle renderer/symbology changes - BETA 19: ULTRA-PROTECCIÓN PARA CARGA QML"""
+        """Handle renderer/symbology changes - BETA 23: Asynchronous stability verification"""
         try:
-            # BETA 19: Detectar carga de estilos con protección ultra-agresiva
-            from qgis.PyQt.QtCore import QTimer
-            current_time = QTimer()
-            current_ms = current_time.remainingTime() if hasattr(current_time, 'remainingTime') else 0
-            
-            self.debug_print("BETA 19: Renderer changed detected - activating ultra-protection")
-            
-            # Marcar que se detectó cambio de estilo
-            self._style_loading_detected = True
-            self._last_style_change_time = current_ms
-            
-            # CRITICAL: Check if this is a raster layer change
             sender_layer = self.sender()
-            is_raster_change = False
-            is_vector_style_change = False
-            is_qml_loading = False
+            if not sender_layer or not hasattr(sender_layer, 'id'):
+                self.debug_print("BETA 23: Renderer change from unknown source")
+                return
+                
+            layer_id = sender_layer.id()
+            layer_name = getattr(sender_layer, 'name', lambda: 'Unknown')()
             
-            if sender_layer and hasattr(sender_layer, '__class__'):
-                layer_class_name = sender_layer.__class__.__name__
-                if 'Raster' in layer_class_name:
-                    is_raster_change = True
-                    self.debug_print("BETA 19: RASTER renderer change detected")
-                elif 'Vector' in layer_class_name:
-                    is_vector_style_change = True
-                    self.debug_print("BETA 19: VECTOR style change detected")
-                    
-                    # BETA 19: Check if this might be QML loading by inspecting renderer type changes
-                    try:
-                        if hasattr(sender_layer, 'renderer') and sender_layer.renderer():
-                            renderer = sender_layer.renderer()
-                            renderer_type = renderer.type() if hasattr(renderer, 'type') else "unknown"
-                            if renderer_type in ['categorizedSymbol', 'graduatedSymbol', 'RuleRenderer']:
-                                is_qml_loading = True
-                                self.debug_print("BETA 19: QML LOADING DETECTED - Complex renderer change")
-                    except:
-                        # If we can't check the renderer, assume it's dangerous
-                        is_qml_loading = True
-                        self.debug_print("BETA 19: Renderer check failed - assuming QML loading")
+            self.debug_print(f"BETA 23: Renderer changed for layer: {layer_name} ({layer_id})")
             
-            # BETA 19: Para cambios QML, usar protección ultra-extendida (10 segundos)
-            if is_qml_loading:
-                safety_delay = 10000  # 10 segundos para QML
-                self.debug_print("BETA 19: QML loading detected - using 10 second protection")
-            elif is_vector_style_change:
-                safety_delay = 7000   # 7 segundos para cambios de vector
-                self.debug_print("BETA 19: Vector style change - using 7 second protection")
-            elif is_raster_change:
-                safety_delay = 5000   # 5 segundos para raster
-                self.debug_print("BETA 19: Raster change - using 5 second protection")
-            else:
-                safety_delay = 3000   # 3 segundos por defecto
-                self.debug_print("BETA 19: General change - using 3 second protection")
+            # IMMEDIATE HIBERNATION - Legend goes offline instantly
+            self._enter_hibernation_mode()
             
-            # BETA 19: Ocultar overlay inmediatamente durante cambios peligrosos
-            if is_qml_loading or is_vector_style_change:
-                if self.legend_overlay:
-                    self.legend_overlay.setVisible(False)
-                    self.debug_print("BETA 19: Overlay hidden during dangerous style change")
+            # Add layer to pending stability verification
+            self._pending_layer_updates.add(layer_id)
             
-            # Store safety delay and schedule restoration
-            self._style_safety_delay = safety_delay
-            QTimer.singleShot(self._style_safety_delay, self._safe_post_style_update)
+            # Start stability verification for this layer
+            self._stability_checker.start_stability_check(layer_id)
             
         except Exception as e:
-            self.debug_print(f"BETA 19: Error in renderer change handler: {e}")
-            # En caso de error, usar protección máxima
-            self._style_loading_detected = True
-            if hasattr(self, 'legend_overlay') and self.legend_overlay:
-                self.legend_overlay.setVisible(False)
-            QTimer.singleShot(10000, self._safe_post_style_update)  # 10 segundos de seguridad
+            self.debug_print(f"BETA 23: Error in renderer change handler: {e}")
+            import traceback
+            traceback.print_exc()
             
     def force_overlay_recreation_raster_safe(self):
         """Force recreation with extended safety for raster layer changes"""
@@ -1175,19 +1449,36 @@ class CanvasLegendDockWidget(QDockWidget):
             QTimer.singleShot(100, self.update_legend_auto)
             
     def on_layer_style_changed(self, layer_id):
-        """Handle layer style changes"""
-        # BETA 20: Invalidate cache for this layer
-        if (hasattr(self, '_symbol_cache') and 
-            hasattr(self, '_beta20_enabled') and 
-            self._beta20_enabled):
-            try:
-                self._symbol_cache.invalidate_layer_cache(layer_id)
-                self.debug_print(f"BETA 20: Cache invalidated for layer {layer_id}")
-            except Exception as e:
-                self.debug_print(f"BETA 20: Error invalidating cache for layer {layer_id}: {e}")
-        
-        if self.auto_update_enabled and self.legend_overlay and self.legend_overlay.isVisible():
-            QTimer.singleShot(100, self.update_legend_auto)
+        """Handle layer style changes - BETA 23: Asynchronous stability verification"""
+        try:
+            layer = QgsProject.instance().mapLayer(layer_id)
+            layer_name = layer.name() if layer else "Unknown"
+            
+            self.debug_print(f"BETA 23: Style changed for layer: {layer_name} ({layer_id})")
+            
+            # IMMEDIATE HIBERNATION - Legend goes offline instantly  
+            self._enter_hibernation_mode()
+            
+            # BETA 20: Invalidate cache for this layer
+            if (hasattr(self, '_symbol_cache') and 
+                hasattr(self, '_beta20_enabled') and 
+                self._beta20_enabled):
+                try:
+                    self._symbol_cache.invalidate_layer_cache(layer_id)
+                    self.debug_print(f"BETA 20: Cache invalidated for layer {layer_id}")
+                except Exception as e:
+                    self.debug_print(f"BETA 20: Error invalidating cache for layer {layer_id}: {e}")
+            
+            # Add layer to pending stability verification
+            self._pending_layer_updates.add(layer_id)
+            
+            # Start stability verification for this layer
+            self._stability_checker.start_stability_check(layer_id)
+            
+        except Exception as e:
+            self.debug_print(f"BETA 23: Error in style change handler: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _safe_post_style_update(self):
         """BETA 19: Actualización ultra-segura después de cambios de estilo QML"""

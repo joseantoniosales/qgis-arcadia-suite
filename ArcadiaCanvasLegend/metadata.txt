@@ -2,7 +2,7 @@
 name=ArcadiaCanvasLegend
 qgisMinimumVersion=3.22
 description=Canvas Legend Overlay - Part of Arcadia Suite. Display customizable legends overlaid on the QGIS canvas with full style control and export capabilities.
-version=1.0.23
+version=1.0.24
 author=Arcadia Suite Development Team
 email=info@arcadiasuite.com
 about=This plugin allows users to display and configure map legends overlay on the QGIS canvas. Features include position and style configuration, text formatting options, background and frame customization, canvas-to-composition conversion, and export to clipboard or PNG. Part of the comprehensive Arcadia Suite for QGIS.
@@ -17,6 +17,17 @@ experimental=False
 deprecated=False
 server=False
 changelog=changelog=
+    1.0.24: BETA 24 - Phantom Pointer Solution with Symbol Cloning and QMutex Isolation
+    - Implemented comprehensive phantom pointer protection through symbol cloning (.clone())
+    - Added QMutex-based thread synchronization for complete worker thread isolation
+    - Pre-rendering system converts symbols to thread-safe QImage representations
+    - Symbol cache with cloned objects safe for cross-thread access
+    - Thread-safety verification system for all symbol data before worker processing
+    - Eliminates EXC_BAD_ACCESS crashes from invalidated QGIS symbol pointers
+    - Safe symbol extraction using cloned copies instead of direct QGIS API references
+    - Image-based fallback system when symbol cloning fails
+    - Comprehensive cache management with automatic cleanup and statistics
+    - Complete elimination of phantom pointer crashes through architectural isolation
     1.0.23: BETA 23 - Asynchronous Stability Verification System (Race Condition Solution)
     - Implemented LayerStabilityChecker for real-time layer state verification
     - Added SymbolProcessingWorker for background thread symbol processing

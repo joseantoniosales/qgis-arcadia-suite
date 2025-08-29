@@ -1,10 +1,10 @@
 """
 Dialog for configuring canvas legend overlay
-BETA 21 ENHANCED - Emergency crash protection and progressive degradation
-Handles all user interface interactions for legend configuration
+BETA 24 PHANTOM POINTER SOLUTION - Symbol cloning and QMutex isolation
+Implements phantom pointer protection through symbol cloning and thread-safe pre-rendering
 """
 
-from qgis.PyQt.QtCore import Qt, pyqtSignal, QTimer, QRect, QPointF, QSize, QThread, QObject, QMutex
+from qgis.PyQt.QtCore import Qt, pyqtSignal, QTimer, QRect, QPointF, QSize, QThread, QObject, QMutex, QMutexLocker
 from qgis.PyQt.QtWidgets import (QDockWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
                                 QLabel, QPushButton, QComboBox, QSpinBox, 
                                 QCheckBox, QGroupBox, QTabWidget, QWidget, 
@@ -21,17 +21,17 @@ import os
 from ..utils import get_arcadia_setting, set_arcadia_setting
 
 # PLUGIN VERSION CONTROL - Single source of truth
-PLUGIN_VERSION = "1.0.23"
-PLUGIN_VERSION_NAME = "Beta 23"
+PLUGIN_VERSION = "1.0.24"
+PLUGIN_VERSION_NAME = "Beta 24"
 
-# BETA 20: Import new architecture modules
+# BETA 24: Import phantom pointer solution modules
 try:
     from ..tools.symbol_cache_manager import SymbolCacheManager
     from ..tools.symbol_data_extractor import SymbolDataExtractor, LayerSymbolInfo
-    BETA20_MODULES_AVAILABLE = True
+    BETA24_MODULES_AVAILABLE = True
 except ImportError as e:
-    print(f"BETA 20: Failed to import new modules: {e}")
-    BETA20_MODULES_AVAILABLE = False
+    print(f"BETA 24: Failed to import new modules: {e}")
+    BETA24_MODULES_AVAILABLE = False
 
 
 # BETA 23: Layer Stability Verification System
@@ -96,39 +96,75 @@ class LayerStabilityChecker(QObject):
             # Otherwise, keep checking
 
 
-# BETA 23: Safe Symbol Processing Worker
+# BETA 24: Safe Symbol Processing Worker with Phantom Pointer Protection
 class SymbolProcessingWorker(QObject):
-    """Worker thread for safe symbol processing"""
+    """
+    Worker thread for safe symbol processing with phantom pointer protection
+    
+    Implementa clonación de símbolos y pre-renderizado thread-safe para eliminar
+    crashes por acceso a punteros QGIS invalidados desde worker threads.
+    """
     processing_completed = pyqtSignal(list)  # List of processed symbol data
     processing_failed = pyqtSignal(str)  # Error message
+    cache_status = pyqtSignal(dict)  # Cache statistics
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layer_ids_to_process = []
         
-    def start_processing(self, layer_ids):
-        """Start processing symbols for given layers"""
-        self.layer_ids_to_process = layer_ids
-        QTimer.singleShot(0, self._process_symbols)
+        # Beta 24: Symbol extractor with phantom pointer protection
+        self.symbol_extractor = SymbolDataExtractor(debug_mode=True) if BETA24_MODULES_AVAILABLE else None
+        self._processing_mutex = QMutex()
         
-    def _process_symbols(self):
-        """Process symbols in background thread"""
+    def start_processing(self, layer_ids):
+        """Start processing symbols for given layers with phantom pointer protection"""
         try:
-            processed_data = []
+            with QMutexLocker(self._processing_mutex):
+                self.layer_ids_to_process = layer_ids
+                QTimer.singleShot(0, self._process_symbols_safely)
+                
+        except Exception as e:
+            self.processing_failed.emit(f"Failed to start processing: {e}")
+        
+    def _process_symbols_safely(self):
+        """Process symbols in background thread with phantom pointer protection"""
+        try:
+            if not self.symbol_extractor:
+                self.processing_failed.emit("Symbol extractor not available")
+                return
+                
+            print(f"[Beta24] Starting safe symbol processing for {len(self.layer_ids_to_process)} layers")
             
-            for layer_id in self.layer_ids_to_process:
-                layer = QgsProject.instance().mapLayer(layer_id)
-                if not layer or not layer.isValid():
-                    continue
+            # Extract legend data using Beta 24 safe extraction
+            legend_data = self.symbol_extractor.extract_legend_data(visible_only=True)
+            
+            # Filter to only requested layers
+            filtered_data = []
+            for layer_info in legend_data:
+                if layer_info.layer_id in self.layer_ids_to_process:
+                    # Verify all symbols are thread-safe
+                    safe_symbols = []
+                    for symbol_data in layer_info.symbols:
+                        if self.symbol_extractor.verify_symbol_thread_safety(symbol_data):
+                            safe_symbols.append(symbol_data)
+                        else:
+                            print(f"[Beta24] Symbol not thread-safe, skipping: {symbol_data.get('label', 'unknown')}")
                     
-                layer_data = self._extract_layer_symbols(layer)
-                if layer_data:
-                    processed_data.append(layer_data)
-                    
-            self.processing_completed.emit(processed_data)
+                    if safe_symbols:
+                        layer_info.symbols = safe_symbols
+                        filtered_data.append(layer_info)
+            
+            # Emit cache statistics
+            cache_stats = self.symbol_extractor.get_cache_stats()
+            self.cache_status.emit(cache_stats)
+            
+            print(f"[Beta24] Successfully processed {len(filtered_data)} layers with thread-safe symbols")
+            self.processing_completed.emit(filtered_data)
             
         except Exception as e:
-            self.processing_failed.emit(str(e))
+            error_msg = f"Beta 24 symbol processing failed: {e}"
+            print(f"[Beta24] {error_msg}")
+            self.processing_failed.emit(error_msg)
             
     def _extract_layer_symbols(self, layer):
         """Extract symbols from layer safely"""
@@ -1086,8 +1122,8 @@ class CanvasLegendDockWidget(QDockWidget):
         self._style_safety_delay = 5000  # 5 segundos de espera tras cambios de estilo
         self._properties_dialog_open = False
         
-        # BETA 20: Initialize new architecture components
-        self._initialize_beta20_components()
+        # BETA 24: Initialize phantom pointer protection components
+        self._initialize_beta24_components()
         
         # BETA 23: Initialize asynchronous stability verification system
         self._initialize_beta23_components()
@@ -1108,35 +1144,35 @@ class CanvasLegendDockWidget(QDockWidget):
         # Connect close event to cleanup
         self.closeEvent = self.custom_close_event
         
-    def _initialize_beta20_components(self):
-        """Initialize Beta 20 architecture components"""
+    def _initialize_beta24_components(self):
+        """Initialize Beta 24 phantom pointer protection components"""
         try:
-            if BETA20_MODULES_AVAILABLE:
+            if BETA24_MODULES_AVAILABLE:
+                print("[Beta24] Initializing phantom pointer protection components...")
+                
                 # Initialize symbol cache manager
                 self._symbol_cache = SymbolCacheManager(max_cache_size=1000)
                 self._symbol_cache.cache_updated.connect(self._on_symbol_cache_updated)
                 
-                # Initialize symbol data extractor
-                self._symbol_data_extractor = SymbolDataExtractor(debug_mode=self.debug_mode)
+                # Initialize symbol data extractor with phantom pointer protection
+                self._symbol_extractor = SymbolDataExtractor(debug_mode=True)
                 
-                # Beta 20 flags
-                self._beta20_enabled = True
-                self._legend_data_cache = []
-                self._last_extraction_time = 0
+                # Initialize phantom pointer protection mutex
+                self._phantom_protection_mutex = QMutex()
                 
-                self.debug_print("BETA 20: New architecture components initialized successfully")
-                self.debug_print(f"BETA 20: Cache manager: {self._symbol_cache}")
-                self.debug_print(f"BETA 20: Data extractor: {self._symbol_data_extractor}")
+                print("[Beta24] Phantom pointer protection components initialized successfully")
+                
             else:
-                # Fallback to legacy system
-                self._beta20_enabled = False
+                print("[Beta24] Modules not available, using fallback")
                 self._symbol_cache = None
-                self._symbol_data_extractor = None
-                self.debug_print("BETA 20: Fallback to legacy system - new modules not available")
+                self._symbol_extractor = None
+                self._phantom_protection_mutex = QMutex()
                 
         except Exception as e:
-            self._beta20_enabled = False
+            print(f"[Beta24] Failed to initialize components: {e}")
             self._symbol_cache = None
+            self._symbol_extractor = None
+            self._phantom_protection_mutex = QMutex()
             self._symbol_data_extractor = None
             self.debug_print(f"BETA 20: Failed to initialize new components: {e}")
             import traceback
@@ -1150,12 +1186,16 @@ class CanvasLegendDockWidget(QDockWidget):
             self._stability_checker.stability_confirmed.connect(self._on_layer_stability_confirmed)
             self._stability_checker.stability_failed.connect(self._on_layer_stability_failed)
             
-            # Symbol processing worker thread
+            # Symbol processing worker thread with Beta 24 phantom pointer protection
             self._worker_thread = QThread()
             self._symbol_worker = SymbolProcessingWorker()
             self._symbol_worker.moveToThread(self._worker_thread)
             self._symbol_worker.processing_completed.connect(self._on_symbol_processing_completed)
             self._symbol_worker.processing_failed.connect(self._on_symbol_processing_failed)
+            
+            # Beta 24: Connect cache status signal
+            self._symbol_worker.cache_status.connect(self._on_cache_status_updated)
+            
             self._worker_thread.start()
             
             # Beta 23 state flags
@@ -1233,9 +1273,25 @@ class CanvasLegendDockWidget(QDockWidget):
         
     def _on_symbol_processing_failed(self, error):
         """Handle symbol processing failure"""
-        self.debug_print(f"BETA 23: Symbol processing failed: {error}")
+        self.debug_print(f"BETA 24: Symbol processing failed: {error}")
         self._processing_symbols = False
         self._exit_hibernation_mode()
+        
+    def _on_cache_status_updated(self, cache_stats):
+        """Handle Beta 24 cache status updates"""
+        try:
+            clone_count = cache_stats.get('clone_cache_size', 0)
+            image_count = cache_stats.get('image_cache_size', 0)
+            
+            self.debug_print(f"BETA 24: Cache status - Clones: {clone_count}, Images: {image_count}")
+            
+            # Opcional: Mostrar estadísticas en la UI para debugging
+            if hasattr(self, 'status_label') and self.status_label:
+                status_text = f"Beta 24: {clone_count} clones, {image_count} images"
+                self.status_label.setText(status_text)
+                
+        except Exception as e:
+            self.debug_print(f"BETA 24: Error updating cache status: {e}")
         
     def _enter_hibernation_mode(self):
         """Enter legend hibernation mode during layer operations"""

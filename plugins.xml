@@ -1,20 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
-    <pyqgis_plugin name="Arcadia WFS Downloader" version="1.1.0">
-        <description><![CDATA[Herramienta avanzada para descargar, recortar y gestionar datos desde servicios WFS.]]></description>
-        <about><![CDATA[Parte de QGIS Arcadia Suite. Desarrollado por José A. Sales.]]></about>
-        <version>1.1.0</version>
+    <pyqgis_plugin name="ArcadiaWFSDownloader" version="1.0.0">
+        <description>Arcadia WFS Downloader - Descarga y gestiona datos de servicios WFS con opciones avanzadas de filtrado y configuración.</description>
+        <about>Este complemento permite a los usuarios conectarse a servicios WFS, explorar sus capas, aplicar filtros espaciales y de atributos, y descargar los datos en varios formatos. Parte de la Arcadia Suite.</about>
+        <version>1.0.0</version>
         <qgis_minimum_version>3.16</qgis_minimum_version>
-        <author_name><![CDATA[José A. Sales]]></author_name>
-        <email><![CDATA[jasales.gis@gmail.com]]></email>
-        <download_url>https://github.com/joseantoniosales/qgis-arcadia-suite/releases/download/v1.1.0/ArcadiaWFSDownloader.zip</download_url>
-        <update_date>2023-08-27</update_date>
-        <changelog><![CDATA[
-- Nueva opción de recorte: GEOMETRÍA sin Buffer
-- Organización mejorada de directorios (config/, cache/, styles/)
-- Creación automática de directorios necesarios
-- Documentación completa del módulo de descarga
-- Gestión mejorada de configuraciones compartidas
-]]></changelog>
+        <author_name>Tu Nombre o Equipo</author_name>
+        <email>tu.email@ejemplo.com</email>
+        <homepage>https://github.com/joseantoniosales/qgis-arcadia-suite</homepage>
+        <tracker>https://github.com/joseantoniosales/qgis-arcadia-suite/issues</tracker>
+        <repository>https://github.com/joseantoniosales/qgis-arcadia-suite</repository>
+        <tags>wfs,downloader,network,web,arcadia</tags>
+        <download_url>https://github.com/joseantoniosales/qgis-arcadia-suite/releases/download/ArcadiaWFSDownloader-v1.0.0/ArcadiaWFSDownloader.zip</download_url>
+        <icon>ArcadiaWFSDownloader/icono_wfs.svg</icon>
+        <experimental>False</experimental>
+        <deprecated>False</deprecated>
+        <server>False</server>
+    </pyqgis_plugin>
+    <pyqgis_plugin name="ArcadiaCanvasLegend" version="1.0.0">
+        <description>Canvas Legend Overlay - Part of Arcadia Suite. Display customizable legends overlaid on the QGIS canvas with full style control and export capabilities.</description>
+        <about>This plugin allows users to display and configure map legends overlay on the QGIS canvas. Features include position and style configuration, text formatting options, background and frame customization, canvas-to-composition conversion, and export to clipboard or PNG. Part of the comprehensive Arcadia Suite for QGIS.</about>
+        <version>1.0.0</version>
+        <qgis_minimum_version>3.22</qgis_minimum_version>
+        <author_name>Arcadia Suite Development Team</author_name>
+        <email>info@arcadiasuite.com</email>
+        <homepage>https://github.com/joseantoniosales/qgis-arcadia-suite</homepage>
+        <tracker>https://github.com/joseantoniosales/qgis-arcadia-suite/issues</tracker>
+        <repository>https://github.com/joseantoniosales/qgis-arcadia-suite</repository>
+        <tags>legend,canvas,overlay,composition,export,arcadia,suite</tags>
+        <download_url>https://github.com/joseantoniosales/qgis-arcadia-suite/releases/download/ArcadiaCanvasLegend-v1.0.0/ArcadiaCanvasLegend.zip</download_url>
+        <icon>ArcadiaCanvasLegend/icon.svg</icon>
+        <experimental>False</experimental>
+        <deprecated>False</deprecated>
+        <server>False</server>
     </pyqgis_plugin>
 </plugins>

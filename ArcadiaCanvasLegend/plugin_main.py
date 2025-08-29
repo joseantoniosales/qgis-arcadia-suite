@@ -133,8 +133,9 @@ class ArcadiaCanvasLegendPlugin:
                 action)
             self.iface.removeToolBarIcon(action)
             
-        # Clean up dialog references
+        # Clean up dialog and legend overlay
         if self.canvas_legend_dialog:
+            self.canvas_legend_dialog.cleanup()
             self.canvas_legend_dialog.close()
             self.canvas_legend_dialog = None
 

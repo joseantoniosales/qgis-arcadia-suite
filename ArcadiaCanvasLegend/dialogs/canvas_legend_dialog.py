@@ -29,12 +29,51 @@ class CanvasLegendOverlay(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.legend_items = []
         self.settings = {}
+        self.symbol_size = 16  # Size for legend symbols
         
     def update_legend_content(self, legend_items, settings):
         """Update legend content and settings"""
         self.legend_items = legend_items
         self.settings = settings
+        
+        # Auto-size if enabled
+        if settings.get('auto_size', True):
+            self.calculate_optimal_size()
+        
         self.update()
+        
+    def calculate_optimal_size(self):
+        """Calculate optimal size based on content"""
+        if not self.legend_items:
+            return
+            
+        # Basic calculation - would be refined based on actual content
+        line_height = 20
+        padding = 10
+        symbol_width = 30
+        text_width = 150  # Estimated
+        
+        height = padding * 2
+        if self.settings.get('show_title', True):
+            height += 25  # Title height
+            
+        # Count visible items
+        total_items = 0
+        for item in self.legend_items:
+            if item.get('type') == 'group':
+                total_items += 1  # Group title
+                total_items += len(item.get('children', []))
+            else:
+                symbols = item.get('symbols', [])
+                if symbols:
+                    total_items += len(symbols)
+                else:
+                    total_items += 1
+                    
+        height += total_items * line_height
+        width = symbol_width + text_width + padding * 2
+        
+        self.resize(width, height)
         
     def paintEvent(self, event):
         """Paint the legend overlay"""
@@ -57,16 +96,60 @@ class CanvasLegendOverlay(QWidget):
             painter.setPen(frame_color)
             painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
             
-        # Draw legend items
+        # Draw title if enabled
         y_offset = 10
+        if self.settings.get('show_title', True):
+            title_text = self.settings.get('title_text', 'Map Legend')
+            painter.setPen(QColor('black'))
+            painter.setFont(QFont('Arial', 12, QFont.Bold))
+            painter.drawText(10, y_offset + 15, title_text)
+            y_offset += 25
+            
+        # Draw legend items
+        painter.setFont(QFont('Arial', 10))
         for item in self.legend_items:
-            self.draw_legend_item(painter, item, y_offset)
-            y_offset += 25  # Adjust based on item height
+            y_offset = self.draw_legend_item(painter, item, y_offset)
             
     def draw_legend_item(self, painter, item, y_offset):
         """Draw individual legend item"""
-        # Simple implementation - would be expanded for real use
-        painter.drawText(10, y_offset, item.get('name', 'Unknown'))
+        line_height = 20
+        symbol_width = 20
+        padding = 10
+        
+        if item.get('type') == 'group':
+            # Draw group name
+            painter.setPen(QColor('black'))
+            painter.setFont(QFont('Arial', 10, QFont.Bold))
+            painter.drawText(padding, y_offset + 15, item.get('name', 'Unknown Group'))
+            y_offset += line_height
+            
+            # Draw children
+            painter.setFont(QFont('Arial', 9))
+            for child in item.get('children', []):
+                y_offset = self.draw_legend_item(painter, child, y_offset)
+                
+        else:
+            # Draw layer
+            symbols = item.get('symbols', [])
+            if symbols:
+                # Draw each symbol
+                for symbol_info in symbols:
+                    # Draw symbol (simplified - would use actual QGIS symbol rendering)
+                    symbol_rect = QRect(padding + 5, y_offset + 2, symbol_width, self.symbol_size)
+                    painter.fillRect(symbol_rect, QColor('gray'))  # Placeholder for actual symbol
+                    
+                    # Draw label
+                    painter.setPen(QColor('black'))
+                    text_x = padding + symbol_width + 10
+                    painter.drawText(text_x, y_offset + 15, symbol_info.get('label', 'Unknown'))
+                    y_offset += line_height
+            else:
+                # Simple layer item without symbols
+                painter.setPen(QColor('black'))
+                painter.drawText(padding + 5, y_offset + 15, item.get('name', 'Unknown'))
+                y_offset += line_height
+                
+        return y_offset
 
 
 class CanvasLegendDialog(QDialog):
@@ -110,11 +193,13 @@ class CanvasLegendDialog(QDialog):
         
         self.preview_btn = QPushButton(self.tr('Preview'))
         self.apply_btn = QPushButton(self.tr('Apply'))
+        self.hide_legend_btn = QPushButton(self.tr('Hide Legend'))
         self.export_btn = QPushButton(self.tr('Export'))
         self.close_btn = QPushButton(self.tr('Close'))
         
         button_layout.addWidget(self.preview_btn)
         button_layout.addWidget(self.apply_btn)
+        button_layout.addWidget(self.hide_legend_btn)
         button_layout.addWidget(self.export_btn)
         button_layout.addStretch()
         button_layout.addWidget(self.close_btn)
@@ -297,8 +382,9 @@ class CanvasLegendDialog(QDialog):
         """Connect UI signals to slots"""
         self.preview_btn.clicked.connect(self.preview_legend)
         self.apply_btn.clicked.connect(self.apply_legend)
+        self.hide_legend_btn.clicked.connect(self.hide_legend)
         self.export_btn.clicked.connect(self.export_current_view)
-        self.close_btn.clicked.connect(self.close)
+        self.close_btn.clicked.connect(self.close_dialog_only)
         
         self.export_clipboard_btn.clicked.connect(self.export_to_clipboard)
         self.export_png_btn.clicked.connect(self.export_to_png)
@@ -386,23 +472,113 @@ class CanvasLegendDialog(QDialog):
         """Get legend items from current map layers"""
         items = []
         try:
-            layers = QgsProject.instance().layerTreeRoot().children()
-            for layer_node in layers:
-                if layer_node.isVisible():
-                    items.append({
-                        'name': layer_node.name(),
-                        'type': 'layer'
-                    })
+            # Get layer tree root
+            root = QgsProject.instance().layerTreeRoot()
+            
+            # Process each layer or group
+            for child in root.children():
+                if hasattr(child, 'layer') and child.layer() is not None:
+                    # Single layer
+                    layer = child.layer()
+                    if child.isVisible() and layer.isValid():
+                        layer_item = {
+                            'name': layer.name(),
+                            'type': 'layer',
+                            'layer': layer,
+                            'visible': child.isVisible()
+                        }
+                        
+                        # Get symbols if it's a vector layer
+                        if hasattr(layer, 'renderer') and layer.renderer():
+                            layer_item['symbols'] = self.get_layer_symbols(layer)
+                        
+                        items.append(layer_item)
+                        
+                elif hasattr(child, 'children'):
+                    # Group
+                    if child.isVisible():
+                        group_item = {
+                            'name': child.name(),
+                            'type': 'group',
+                            'visible': child.isVisible(),
+                            'children': []
+                        }
+                        
+                        # Process children of the group
+                        for group_child in child.children():
+                            if hasattr(group_child, 'layer') and group_child.layer() is not None:
+                                layer = group_child.layer()
+                                if group_child.isVisible() and layer.isValid():
+                                    layer_item = {
+                                        'name': layer.name(),
+                                        'type': 'layer',
+                                        'layer': layer,
+                                        'visible': group_child.isVisible()
+                                    }
+                                    
+                                    # Get symbols if it's a vector layer
+                                    if hasattr(layer, 'renderer') and layer.renderer():
+                                        layer_item['symbols'] = self.get_layer_symbols(layer)
+                                    
+                                    group_item['children'].append(layer_item)
+                        
+                        if group_item['children']:  # Only add groups that have visible children
+                            items.append(group_item)
+                            
         except Exception as e:
             print(f"Error getting legend items: {e}")
         return items
+    
+    def get_layer_symbols(self, layer):
+        """Get symbols for a layer"""
+        symbols = []
+        try:
+            renderer = layer.renderer()
+            if renderer:
+                # Handle different renderer types
+                if hasattr(renderer, 'symbol'):
+                    # Single symbol renderer
+                    symbol = renderer.symbol()
+                    if symbol:
+                        symbols.append({
+                            'label': layer.name(),
+                            'symbol': symbol.clone() if hasattr(symbol, 'clone') else symbol
+                        })
+                elif hasattr(renderer, 'categories'):
+                    # Categorized renderer
+                    for category in renderer.categories():
+                        symbols.append({
+                            'label': category.label(),
+                            'symbol': category.symbol().clone() if hasattr(category.symbol(), 'clone') else category.symbol()
+                        })
+                elif hasattr(renderer, 'ranges'):
+                    # Graduated renderer
+                    for range_item in renderer.ranges():
+                        symbols.append({
+                            'label': range_item.label(),
+                            'symbol': range_item.symbol().clone() if hasattr(range_item.symbol(), 'clone') else range_item.symbol()
+                        })
+                elif hasattr(renderer, 'rules'):
+                    # Rule-based renderer
+                    for rule in renderer.rootRule().children():
+                        if rule.isActive():
+                            symbols.append({
+                                'label': rule.label() or rule.filterExpression(),
+                                'symbol': rule.symbol().clone() if hasattr(rule.symbol(), 'clone') else rule.symbol()
+                            })
+        except Exception as e:
+            print(f"Error getting symbols for layer {layer.name()}: {e}")
+        return symbols
         
     def position_overlay(self):
         """Position the legend overlay on canvas"""
         if not self.legend_overlay:
             return
             
+        # Get canvas geometry in global coordinates
+        canvas_global_pos = self.canvas.mapToGlobal(self.canvas.rect().topLeft())
         canvas_size = self.canvas.size()
+        
         self.legend_overlay.resize(self.width_spin.value(), self.height_spin.value())
         overlay_size = self.legend_overlay.size()
         
@@ -410,19 +586,22 @@ class CanvasLegendDialog(QDialog):
         x_offset = self.x_offset_spin.value()
         y_offset = self.y_offset_spin.value()
         
+        # Calculate position relative to canvas, not main window
         if 'top' in position and 'left' in position:
-            x, y = x_offset, y_offset
+            x = canvas_global_pos.x() + x_offset
+            y = canvas_global_pos.y() + y_offset
         elif 'top' in position and 'right' in position:
-            x = canvas_size.width() - overlay_size.width() - x_offset
-            y = y_offset
+            x = canvas_global_pos.x() + canvas_size.width() - overlay_size.width() - x_offset
+            y = canvas_global_pos.y() + y_offset
         elif 'bottom' in position and 'left' in position:
-            x = x_offset
-            y = canvas_size.height() - overlay_size.height() - y_offset
+            x = canvas_global_pos.x() + x_offset
+            y = canvas_global_pos.y() + canvas_size.height() - overlay_size.height() - y_offset
         elif 'bottom' in position and 'right' in position:
-            x = canvas_size.width() - overlay_size.width() - x_offset
-            y = canvas_size.height() - overlay_size.height() - y_offset
+            x = canvas_global_pos.x() + canvas_size.width() - overlay_size.width() - x_offset
+            y = canvas_global_pos.y() + canvas_size.height() - overlay_size.height() - y_offset
         else:  # Custom position
-            x, y = x_offset, y_offset
+            x = canvas_global_pos.x() + x_offset
+            y = canvas_global_pos.y() + y_offset
             
         self.legend_overlay.move(x, y)
         
@@ -498,13 +677,32 @@ class CanvasLegendDialog(QDialog):
             QMessageBox.critical(self, self.tr('Error'), 
                                self.tr('Error creating composition: {}').format(str(e)))
             
+    def hide_legend(self):
+        """Hide the legend overlay without closing the dialog"""
+        try:
+            if self.legend_overlay:
+                self.legend_overlay.hide()
+        except Exception as e:
+            QMessageBox.warning(self, self.tr('Warning'), 
+                              self.tr('Error hiding legend: {}').format(str(e)))
+            
+    def close_dialog_only(self):
+        """Close only the dialog, keep legend visible if active"""
+        self.hide()
+        
     def capture_canvas_with_legend(self):
         """Capture canvas with legend overlay as pixmap"""
         canvas_pixmap = self.canvas.grab()
         return canvas_pixmap
         
-    def closeEvent(self, event):
-        """Handle dialog close event"""
+    def cleanup(self):
+        """Clean up resources when plugin is unloaded"""
         if self.legend_overlay:
             self.legend_overlay.close()
+            self.legend_overlay = None
+    
+    def closeEvent(self, event):
+        """Handle dialog close event - don't close legend overlay"""
+        # Don't close the legend overlay when dialog closes
+        # User must explicitly use "Hide Legend" button
         event.accept()

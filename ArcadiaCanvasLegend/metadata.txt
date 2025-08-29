@@ -16,11 +16,11 @@ icon=icon.svg
 experimental=False
 deprecated=False
 server=False
-version=1.0.18
-changelog=Beta 18: Protección específica para carga de estilos QML
-    - Detecta carga de archivos de estilo .qml
-    - Implementa delay de seguridad de 5 segundos tras cambios de simbología
-    - Oculta overlay temporalmente durante carga de estilos vectoriales
-    - Verifica estabilidad de capas antes de recrear overlay
-    - Protección específica en paintEvent para evitar crashes durante carga de estilos
-    - Manejo especializado para simbologías categorizadas complejas
+version=1.0.17
+changelog=Beta 17: Protección avanzada para capas raster
+    - Implementa protección de 6 niveles para símbolos raster pseudocolor
+    - Verifica validez de capa padre antes de renderizar símbolos
+    - Detecta símbolos sin capas de símbolo (vacíos)
+    - Timeout automático para validación de símbolos
+    - Delay extendido de limpieza para raster (4 segundos)
+    - Manejo defensivo de todas las propiedades de símbolo raster

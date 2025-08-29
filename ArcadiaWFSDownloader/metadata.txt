@@ -1,7 +1,7 @@
 # Archivo de metadatos del complemento, debe estar codificado en UTF-8
 
 [general]
-name=Arcadia WFS Downloader
+name=ArcadiaWFSDownloader
 description=Suite de herramientas para descargar, recortar, filtrar y gestionar datos desde servicios WFS
 about=El complemento Arcadia WFS Downloader facilita la automatización de flujos de trabajo con servicios WFS en QGIS. Incluye herramientas para la descarga, recorte, filtrado y gestión de datos desde servicios WFS. Soporta trabajo en equipo mediante configuraciones compartidas.
 version=1.1.0

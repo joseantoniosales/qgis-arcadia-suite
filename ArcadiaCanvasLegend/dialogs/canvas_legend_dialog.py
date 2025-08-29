@@ -681,11 +681,69 @@ class CanvasLegendDockWidget(QDockWidget):
             self.debug_print(f"Error connecting existing layer signals: {e}")
             
     def on_renderer_changed(self):
-        """Handle renderer/symbology changes - FORCE OVERLAY RECREATION"""
-        self.debug_print("Renderer changed detected - forcing overlay recreation")
-        if self.legend_overlay and self.legend_overlay.isVisible():
-            # CRITICAL: Destroy and recreate overlay to prevent crashes
-            self.force_overlay_recreation()
+        """Handle renderer/symbology changes - FORCE OVERLAY RECREATION WITH RASTER PROTECTION"""
+        try:
+            self.debug_print("Renderer changed detected - forcing overlay recreation")
+            
+            # CRITICAL: Check if this is a raster layer change
+            sender_layer = self.sender()
+            is_raster_change = False
+            if sender_layer and hasattr(sender_layer, '__class__'):
+                if 'Raster' in sender_layer.__class__.__name__:
+                    is_raster_change = True
+                    self.debug_print("RASTER renderer change detected - using extra safety")
+            
+            if self.legend_overlay and self.legend_overlay.isVisible():
+                if is_raster_change:
+                    # For raster changes, use longer delay and more safety checks
+                    self.debug_print("Raster change - using extended recreation delay")
+                    self.force_overlay_recreation_raster_safe()
+                else:
+                    # Normal recreation for vector changes
+                    self.force_overlay_recreation()
+                    
+        except Exception as e:
+            self.debug_print(f"Error in on_renderer_changed: {e}")
+            
+    def force_overlay_recreation_raster_safe(self):
+        """Force recreation with extended safety for raster layer changes"""
+        try:
+            self.debug_print("Force recreating overlay due to RASTER symbology changes")
+            
+            # Hide and destroy existing overlay with raster-safe approach
+            if self.legend_overlay:
+                # Mark as destroyed immediately
+                self.legend_overlay._destroyed = True
+                
+                # Hide first
+                try:
+                    self.legend_overlay.hide()
+                except:
+                    pass
+                
+                # Delete with extended delay for raster safety
+                try:
+                    self.legend_overlay.deleteLater()
+                except:
+                    pass
+                    
+                self.legend_overlay = None
+            
+            # Extended delay for raster layer processing
+            QTimer.singleShot(300, self.recreate_overlay_delayed_raster_safe)
+            
+        except Exception as e:
+            self.debug_print(f"Error in force overlay recreation (raster): {e}")
+            
+    def recreate_overlay_delayed_raster_safe(self):
+        """Recreate overlay after extended cleanup delay for raster safety"""
+        try:
+            self.debug_print("Recreating overlay after raster-safe delay")
+            if self.auto_update_enabled:
+                # Use apply_legend which has throttling and safety checks
+                self.apply_legend()
+        except Exception as e:
+            self.debug_print(f"Error in delayed overlay recreation (raster): {e}")
             
     def force_overlay_recreation(self):
         """Force complete recreation of overlay to prevent symbol corruption crashes"""
@@ -729,19 +787,39 @@ class CanvasLegendDockWidget(QDockWidget):
             QTimer.singleShot(100, self.update_legend_auto)
             
     def update_legend_auto(self):
-        """Update legend automatically without user interaction - USE RECREATION STRATEGY"""
+        """Update legend automatically without user interaction - USE RECREATION STRATEGY WITH RASTER PROTECTION"""
         try:
             if self.legend_overlay and self.legend_overlay.isVisible():
-                # For symbology changes, use complete recreation strategy
-                self.debug_print("Auto-update triggered - using recreation strategy for safety")
+                # CRITICAL: For raster layer changes, always use recreation for safety
+                has_raster_layers = False
+                try:
+                    for layer in QgsProject.instance().mapLayers().values():
+                        if hasattr(layer, '__class__') and ('Raster' in layer.__class__.__name__):
+                            has_raster_layers = True
+                            break
+                except:
+                    pass
+                
+                if has_raster_layers:
+                    self.debug_print("Auto-update with raster layers detected - using recreation strategy for safety")
+                else:
+                    self.debug_print("Auto-update triggered - using recreation strategy for safety")
+                    
                 self.apply_legend()  # This will safely recreate the overlay
                 
         except Exception as e:
             self.debug_print(f"Error auto-updating legend: {e}")
+            # If auto-update fails, try to at least keep overlay visible
+            try:
+                if self.legend_overlay:
+                    if not self.legend_overlay.isVisible():
+                        self.legend_overlay.show()
+            except:
+                pass
         
     def setupUi(self):
         """Set up the user interface"""
-        self.setWindowTitle('Arcadia Canvas Legend - Beta 16 (Anti-Recreation + Safe Positioning)')
+        self.setWindowTitle('Arcadia Canvas Legend - Beta 17 (Raster Protection + Multi-Level Safety)')
         
         # Main layout for central widget
         main_layout = QVBoxLayout(self.central_widget)
@@ -1270,81 +1348,167 @@ class CanvasLegendDockWidget(QDockWidget):
             
             self.debug_print(f"-> is_vector: {is_vector}, is_raster: {is_raster}")
             
-            # Handle raster layers
+            # Handle raster layers with CRITICAL safety checks
             if is_raster and not is_vector:
                 self.debug_print(f"-> Raster layer detected (class-based)")
                 
-                # Analyze raster renderer type
-                renderer = layer.renderer() if hasattr(layer, 'renderer') else None
-                renderer_type = renderer.type() if renderer else 'unknown'
-                band_count = layer.bandCount() if hasattr(layer, 'bandCount') else 1
-                
-                self.debug_print(f"-> Raster renderer type: {renderer_type}")
-                self.debug_print(f"-> Band count: {band_count}")
-                
-                # Handle different raster types
-                if renderer_type == 'singlebandpseudocolor':
-                    # Pseudocolor raster - show color ramp
-                    self.debug_print(f"-> Pseudocolor raster - generating color ramp")
-                    if hasattr(renderer, 'shader') and renderer.shader():
-                        shader = renderer.shader()
-                        if hasattr(shader, 'rasterShaderFunction'):
-                            ramp_function = shader.rasterShaderFunction()
-                            if hasattr(ramp_function, 'colorRampItemList'):
-                                color_items = ramp_function.colorRampItemList()
-                                if color_items:
-                                    # Get decimal places from UI control
-                                    decimals = self.pseudocolor_decimals_spin.value() if hasattr(self, 'pseudocolor_decimals_spin') else 2
+                try:
+                    # CRITICAL: Safe renderer access with multiple fallbacks
+                    renderer = None
+                    renderer_type = 'unknown'
+                    band_count = 1
+                    
+                    # Level 1: Basic renderer check
+                    if hasattr(layer, 'renderer'):
+                        try:
+                            renderer = layer.renderer()
+                            if renderer:
+                                renderer_type = renderer.type() if hasattr(renderer, 'type') else 'unknown'
+                        except Exception as e:
+                            self.debug_print(f"-> ERROR accessing renderer: {e}")
+                            renderer = None
+                    
+                    # Level 2: Safe band count check  
+                    if hasattr(layer, 'bandCount'):
+                        try:
+                            band_count = layer.bandCount()
+                        except Exception as e:
+                            self.debug_print(f"-> ERROR accessing band count: {e}")
+                            band_count = 1
+                    
+                    self.debug_print(f"-> Raster renderer type: {renderer_type}")
+                    self.debug_print(f"-> Band count: {band_count}")
+                    
+                    # CRITICAL: Handle pseudocolor with extensive error protection
+                    if renderer_type == 'singlebandpseudocolor' and renderer:
+                        self.debug_print(f"-> Pseudocolor raster - generating color ramp with protection")
+                        
+                        try:
+                            # Level 3: Safe shader access
+                            shader = None
+                            if hasattr(renderer, 'shader'):
+                                try:
+                                    shader = renderer.shader()
+                                except Exception as e:
+                                    self.debug_print(f"-> ERROR accessing shader: {e}")
                                     
-                                    # Create multiple symbols for the color ramp
-                                    for i, item in enumerate(color_items[:5]):  # Max 5 colors to avoid overcrowding
-                                        # Format value with specified decimal places
-                                        if hasattr(item, 'value'):
-                                            value_text = f"{item.value:.{decimals}f}"
-                                        else:
-                                            value_text = f"Color {i+1}"
+                            if shader and hasattr(shader, 'rasterShaderFunction'):
+                                try:
+                                    ramp_function = shader.rasterShaderFunction()
+                                    if ramp_function and hasattr(ramp_function, 'colorRampItemList'):
+                                        try:
+                                            color_items = ramp_function.colorRampItemList()
+                                            if color_items and len(color_items) > 0:
+                                                self.debug_print(f"-> Found {len(color_items)} color ramp items")
+                                                
+                                                # Get decimal places safely
+                                                decimals = 2
+                                                try:
+                                                    if hasattr(self, 'pseudocolor_decimals_spin'):
+                                                        decimals = self.pseudocolor_decimals_spin.value()
+                                                except:
+                                                    pass
+                                                
+                                                # CRITICAL: Safe color item processing
+                                                for i, item in enumerate(color_items[:5]):  # Max 5 colors
+                                                    try:
+                                                        # Safe value access
+                                                        value_text = "Unknown"
+                                                        if hasattr(item, 'value'):
+                                                            try:
+                                                                value_text = f"{item.value:.{decimals}f}"
+                                                            except:
+                                                                value_text = f"Value {i+1}"
+                                                        
+                                                        # Safe label access
+                                                        label = f"Color {i+1}"
+                                                        if hasattr(item, 'label') and item.label:
+                                                            try:
+                                                                label = str(item.label)
+                                                            except:
+                                                                pass
+                                                        else:
+                                                            label = f"Value {value_text}"
+                                                        
+                                                        # Safe color access
+                                                        color = QColor('gray')
+                                                        if hasattr(item, 'color'):
+                                                            try:
+                                                                color = item.color
+                                                                if not color.isValid():
+                                                                    color = QColor('gray')
+                                                            except:
+                                                                pass
+                                                        
+                                                        symbols.append({
+                                                            'label': label,
+                                                            'symbol': None,
+                                                            'color': color,
+                                                            'layer_type': 'raster_pseudocolor',
+                                                            'geometry_type': 'raster'
+                                                        })
+                                                        
+                                                    except Exception as item_error:
+                                                        self.debug_print(f"-> ERROR processing color item {i}: {item_error}")
+                                                        # Continue with next item
+                                                        continue
+                                                
+                                                if symbols:  # Return if we got any symbols
+                                                    return symbols
+                                                    
+                                        except Exception as items_error:
+                                            self.debug_print(f"-> ERROR accessing color ramp items: {items_error}")
                                             
-                                        label = f"{item.label}" if hasattr(item, 'label') and item.label else f"Value {value_text}"
-                                        
-                                        symbols.append({
-                                            'label': label,
-                                            'symbol': None,
-                                            'color': item.color if hasattr(item, 'color') else QColor('gray'),
-                                            'layer_type': 'raster_pseudocolor',
-                                            'geometry_type': 'raster'
-                                        })
-                                    return symbols
+                                except Exception as ramp_error:
+                                    self.debug_print(f"-> ERROR accessing raster shader function: {ramp_error}")
+                                    
+                        except Exception as shader_error:
+                            self.debug_print(f"-> ERROR in pseudocolor processing: {shader_error}")
+                        
+                        # Fallback for pseudocolor without detailed ramp info
+                        self.debug_print(f"-> Using pseudocolor fallback")
+                        symbols.append({
+                            'label': f"{layer.name()} (Pseudocolor)",
+                            'symbol': None,
+                            'color': QColor('blue'),
+                            'layer_type': 'raster_pseudocolor',
+                            'geometry_type': 'raster',
+                            'error_type': 'missing'  # Indicate fallback used
+                        })
+                        
+                    elif renderer_type == 'multibandcolor' or band_count >= 3:
+                        # RGB/Multiband raster - no symbol, just text
+                        self.debug_print(f"-> RGB/Multiband raster - text only")
+                        symbols.append({
+                            'label': layer.name(),
+                            'symbol': None,
+                            'color': None,  # No color = no symbol drawn
+                            'layer_type': 'raster_rgb',
+                            'geometry_type': 'raster',
+                            'text_only': True  # Special flag for text-only display
+                        })
+                        
+                    else:
+                        # Single band grayscale or other - simple symbol
+                        self.debug_print(f"-> Other raster type - simple symbol")
+                        symbols.append({
+                            'label': layer.name(),
+                            'symbol': None,
+                            'color': QColor('lightgray'),
+                            'layer_type': 'raster_other',
+                            'geometry_type': 'raster'
+                        })
                     
-                    # Fallback for pseudocolor without detailed ramp info
+                except Exception as raster_error:
+                    self.debug_print(f"-> CRITICAL ERROR processing raster layer: {raster_error}")
+                    # Ultimate fallback for any raster processing error
                     symbols.append({
-                        'label': f"{layer.name()} (Pseudocolor)",
+                        'label': f"{layer.name()} (Raster Error)",
                         'symbol': None,
-                        'color': QColor('blue'),
-                        'layer_type': 'raster_pseudocolor',
-                        'geometry_type': 'raster'
-                    })
-                    
-                elif renderer_type == 'multibandcolor' or band_count >= 3:
-                    # RGB/Multiband raster - no symbol, just text
-                    self.debug_print(f"-> RGB/Multiband raster - text only")
-                    symbols.append({
-                        'label': layer.name(),
-                        'symbol': None,
-                        'color': None,  # No color = no symbol drawn
-                        'layer_type': 'raster_rgb',
+                        'color': QColor('red'),
+                        'layer_type': 'raster_error',
                         'geometry_type': 'raster',
-                        'text_only': True  # Special flag for text-only display
-                    })
-                    
-                else:
-                    # Single band grayscale or other - simple symbol
-                    self.debug_print(f"-> Other raster type - simple symbol")
-                    symbols.append({
-                        'label': layer.name(),
-                        'symbol': None,
-                        'color': QColor('lightgray'),
-                        'layer_type': 'raster_other',
-                        'geometry_type': 'raster'
+                        'error_type': 'corrupted'  # Indicate error occurred
                     })
                 
                 return symbols

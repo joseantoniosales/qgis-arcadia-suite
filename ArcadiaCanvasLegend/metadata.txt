@@ -2,7 +2,7 @@
 name=ArcadiaCanvasLegend
 qgisMinimumVersion=3.22
 description=Canvas Legend Overlay - Part of Arcadia Suite. Display customizable legends overlaid on the QGIS canvas with full style control and export capabilities.
-version=1.0.24
+version=1.0.25
 author=Arcadia Suite Development Team
 email=info@arcadiasuite.com
 about=This plugin allows users to display and configure map legends overlay on the QGIS canvas. Features include position and style configuration, text formatting options, background and frame customization, canvas-to-composition conversion, and export to clipboard or PNG. Part of the comprehensive Arcadia Suite for QGIS.
@@ -16,7 +16,17 @@ icon=icon.svg
 experimental=False
 deprecated=False
 server=False
-changelog=changelog=
+changelog=
+    1.0.25: BETA 25 - "ÚLTIMA BALA" Complete Rendering Separation Solution
+    - Implemented complete separation: worker threads extract ONLY primitive data, main thread handles ALL rendering
+    - Eliminated QgsRenderContext contamination by preventing any .asImage() calls in worker threads
+    - Two-phase processing: Phase 1 (worker) extracts RGBA colors/sizes, Phase 2 (main thread) renders symbols
+    - Added _extract_primitive_symbol_data() for safe color/size extraction without Qt object references
+    - Main thread exclusive rendering with _render_symbols_in_main_thread() and safe render context creation
+    - Complete elimination of worker thread rendering to prevent QgsRenderContext contamination crashes
+    - Worker threads marked as 'is_worker_safe' and symbols flagged 'needs_main_thread_rendering'
+    - Architectural guarantee: zero risk of contaminated render contexts causing phantom pointer crashes
+    - Final solution for EXC_BAD_ACCESS crashes through absolute rendering separation
     1.0.24: BETA 24 - Phantom Pointer Solution with Symbol Cloning and QMutex Isolation
     - Implemented comprehensive phantom pointer protection through symbol cloning (.clone())
     - Added QMutex-based thread synchronization for complete worker thread isolation

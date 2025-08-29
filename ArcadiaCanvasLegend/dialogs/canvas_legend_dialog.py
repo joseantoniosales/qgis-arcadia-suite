@@ -34,6 +34,9 @@ class CanvasLegendOverlay(QWidget):
         self.settings = {}
         self.symbol_size = 16  # Size for legend symbols
         self.debug_mode = False  # Debug mode off by default
+        self._painting = False  # Flag to prevent recursive painting
+        self._resizing = False  # Flag to prevent painting during resize
+        self._update_scheduled = False  # Flag to prevent multiple update calls
         
     def debug_print(self, message):
         """Print debug message only if debug mode is enabled"""
@@ -41,7 +44,12 @@ class CanvasLegendOverlay(QWidget):
             print(message)
         
     def update_legend_content(self, legend_items, settings):
-        """Update legend content and settings"""
+        """Update legend content and settings with crash protection"""
+        if self._painting or self._resizing:
+            # Schedule update for later if we're in a sensitive operation
+            QTimer.singleShot(100, lambda: self.update_legend_content(legend_items, settings))
+            return
+            
         self.legend_items = legend_items
         self.settings = settings
         
@@ -52,12 +60,19 @@ class CanvasLegendOverlay(QWidget):
         if settings.get('auto_size', True):
             self.calculate_optimal_size()
         
-        self.update()
+        # Schedule safe update
+        if not self._update_scheduled:
+            self._update_scheduled = True
+            QTimer.singleShot(10, self._delayed_update)
         
     def calculate_optimal_size(self):
-        """Calculate optimal size based on content"""
+        """Calculate optimal size based on content with crash protection"""
+        if self._resizing:
+            # Don't resize while already resizing
+            return
+            
         if not self.legend_items:
-            self.resize(200, 100)  # Minimum size
+            self._safe_resize(200, 100)  # Minimum size
             return
             
         # Basic calculation - refined based on actual content
@@ -111,19 +126,41 @@ class CanvasLegendOverlay(QWidget):
         width = max(min_width, content_width)
         
         self.debug_print(f"Calculated size: {width}x{height} for {total_items} items")
-        self.resize(int(width), int(height))
+        self._safe_resize(int(width), int(height))
+        
+    def _safe_resize(self, width, height):
+        """Safely resize widget with crash protection"""
+        if self._painting or self._resizing:
+            # Schedule resize for later
+            QTimer.singleShot(50, lambda: self._safe_resize(width, height))
+            return
+            
+        self._resizing = True
+        try:
+            self.resize(width, height)
+        except Exception as e:
+            self.debug_print(f"Error in safe resize: {e}")
+        finally:
+            QTimer.singleShot(10, lambda: setattr(self, '_resizing', False))
         
     def paintEvent(self, event):
-        """Paint the legend overlay"""
+        """Paint the legend overlay with crash protection"""
+        # Prevent recursive painting
+        if self._painting or self._resizing:
+            self.debug_print("Skipping paintEvent: already painting or resizing")
+            return
+            
         if not self.legend_items:
             return
             
+        self._painting = True
         painter = QPainter()
-        if not painter.begin(self):
-            self.debug_print("Error: Failed to begin painting on legend overlay")
-            return
-            
+        
         try:
+            if not painter.begin(self):
+                self.debug_print("Error: Failed to begin painting on legend overlay")
+                return
+                
             painter.setRenderHint(QPainter.Antialiasing)
             
             # Draw background if enabled
@@ -156,7 +193,32 @@ class CanvasLegendOverlay(QWidget):
         except Exception as e:
             self.debug_print(f"Error in paintEvent: {e}")
         finally:
-            painter.end()
+            if painter.isActive():
+                painter.end()
+            self._painting = False
+            
+    def resizeEvent(self, event):
+        """Handle resize events with crash protection"""
+        self._resizing = True
+        try:
+            super().resizeEvent(event)
+            # Schedule update after resize is complete
+            if not self._update_scheduled:
+                self._update_scheduled = True
+                QTimer.singleShot(50, self._delayed_update)
+        except Exception as e:
+            self.debug_print(f"Error in resizeEvent: {e}")
+        finally:
+            self._resizing = False
+            
+    def _delayed_update(self):
+        """Delayed update after resize"""
+        try:
+            self._update_scheduled = False
+            if not self._painting and not self._resizing:
+                self.update()
+        except Exception as e:
+            self.debug_print(f"Error in delayed update: {e}")
             
     def draw_legend_item(self, painter, item, y_offset):
         """Draw individual legend item"""
@@ -257,6 +319,17 @@ class CanvasLegendOverlay(QWidget):
     
     def draw_symbol_safe(self, painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type='unknown'):
         """Draw symbol with multiple fallback methods and crash protection"""
+        # Check if we're in a sensitive state (painting or resizing)
+        if hasattr(self, '_painting') and self._painting:
+            self.debug_print("    -> Skipping symbol draw: painting in progress")
+            painter.fillRect(symbol_rect, QColor('lightgray'))
+            return
+            
+        if hasattr(self, '_resizing') and self._resizing:
+            self.debug_print("    -> Skipping symbol draw: resizing in progress")
+            painter.fillRect(symbol_rect, QColor('lightgray'))
+            return
+            
         method_used = "none"
         try:
             self.debug_print(f"    draw_symbol_safe: layer_type={layer_type}, geometry_type={geometry_type}, has_symbol={symbol is not None}")
@@ -554,7 +627,7 @@ class CanvasLegendDialog(QDialog):
         
     def setupUi(self):
         """Set up the user interface"""
-        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 10'))
+        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 11'))
         self.setMinimumSize(400, 600)
         
         layout = QVBoxLayout(self)
@@ -1340,7 +1413,7 @@ class CanvasLegendDialog(QDialog):
         return symbols
         
     def position_overlay(self):
-        """Position the legend overlay on canvas"""
+        """Position the legend overlay on canvas with crash protection"""
         if not self.legend_overlay:
             return
             
@@ -1348,7 +1421,19 @@ class CanvasLegendDialog(QDialog):
         canvas_global_pos = self.canvas.mapToGlobal(self.canvas.rect().topLeft())
         canvas_size = self.canvas.size()
         
-        self.legend_overlay.resize(self.width_spin.value(), self.height_spin.value())
+        # Use safe resize method
+        target_width = self.width_spin.value()
+        target_height = self.height_spin.value()
+        self.legend_overlay._safe_resize(target_width, target_height)
+        
+        # Wait a moment for resize to complete before positioning
+        QTimer.singleShot(20, lambda: self._complete_positioning(canvas_global_pos, canvas_size))
+        
+    def _complete_positioning(self, canvas_global_pos, canvas_size):
+        """Complete the positioning after resize"""
+        if not self.legend_overlay:
+            return
+            
         overlay_size = self.legend_overlay.size()
         
         position = self.position_combo.currentText().lower()

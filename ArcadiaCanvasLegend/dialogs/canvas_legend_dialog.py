@@ -31,11 +31,20 @@ class CanvasLegendOverlay(QWidget):
         self.legend_items = []
         self.settings = {}
         self.symbol_size = 16  # Size for legend symbols
+        self.debug_mode = False  # Debug mode off by default
+        
+    def debug_print(self, message):
+        """Print debug message only if debug mode is enabled"""
+        if self.debug_mode:
+            print(message)
         
     def update_legend_content(self, legend_items, settings):
         """Update legend content and settings"""
         self.legend_items = legend_items
         self.settings = settings
+        
+        # Update debug mode from settings
+        self.debug_mode = settings.get('debug_mode', False)
         
         # Auto-size if enabled
         if settings.get('auto_size', True):
@@ -796,7 +805,8 @@ class CanvasLegendDialog(QDialog):
             'frame_color': self.frame_color_btn.color().name(),
             'frame_width': self.frame_width_spin.value(),
             'show_title': self.show_title_check.isChecked(),
-            'title_text': self.title_text.text()
+            'title_text': self.title_text.text(),
+            'debug_mode': self.debug_mode
         }
         
     def get_legend_items(self):

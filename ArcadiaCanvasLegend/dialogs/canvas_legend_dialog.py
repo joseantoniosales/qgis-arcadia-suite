@@ -105,7 +105,7 @@ class CanvasLegendOverlay(QWidget):
             # Draw title if enabled
             y_offset = 10
             if self.settings.get('show_title', True):
-                title_text = self.settings.get('title_text', 'Map Legend - Beta 03')
+                title_text = self.settings.get('title_text', 'Map Legend')
                 painter.setPen(QColor('black'))
                 painter.setFont(QFont('Arial', 12, QFont.Bold))
                 painter.drawText(10, y_offset + 15, title_text)
@@ -499,7 +499,7 @@ class CanvasLegendDialog(QDialog):
         
         title_layout.addWidget(QLabel(self.tr('Title Text:')), 1, 0)
         self.title_text = QLineEdit()
-        self.title_text.setText(self.tr('Map Legend - Beta 03'))
+        self.title_text.setText(self.tr('Map Legend'))
         title_layout.addWidget(self.title_text, 1, 1)
         
         layout.addWidget(title_group)

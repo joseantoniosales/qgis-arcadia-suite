@@ -17,7 +17,7 @@ experimental=False
 deprecated=False
 hasProcessingProvider=True
 server=False
-icon=icon.svg
+icon=icon_wfs.svg
 changelog=
 Version 1.1.0 (2025-08-27)
 - Nueva opción de recorte: GEOMETRÍA sin Buffer

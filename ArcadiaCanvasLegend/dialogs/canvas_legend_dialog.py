@@ -99,7 +99,7 @@ class CanvasLegendOverlay(QWidget):
         content_width = symbol_width + max(max_text_width, text_width) + padding * 3
         width = max(min_width, content_width)
         
-        print(f"Calculated size: {width}x{height} for {total_items} items")
+        self.debug_print(f"Calculated size: {width}x{height} for {total_items} items")
         self.resize(int(width), int(height))
         
     def paintEvent(self, event):
@@ -109,7 +109,7 @@ class CanvasLegendOverlay(QWidget):
             
         painter = QPainter()
         if not painter.begin(self):
-            print("Error: Failed to begin painting on legend overlay")
+            self.debug_print("Error: Failed to begin painting on legend overlay")
             return
             
         try:
@@ -143,7 +143,7 @@ class CanvasLegendOverlay(QWidget):
                 y_offset = self.draw_legend_item(painter, item, y_offset)
                 
         except Exception as e:
-            print(f"Error in paintEvent: {e}")
+            self.debug_print(f"Error in paintEvent: {e}")
         finally:
             painter.end()
             
@@ -159,7 +159,7 @@ class CanvasLegendOverlay(QWidget):
             painter.setFont(QFont('Arial', 10, QFont.Bold))
             group_name = item.get('name', 'Unknown Group')
             painter.drawText(padding, y_offset + 15, group_name)
-            print(f"Drawing group: {group_name}")
+            self.debug_print(f"Drawing group: {group_name}")
             y_offset += line_height
             
             # Draw children
@@ -172,7 +172,7 @@ class CanvasLegendOverlay(QWidget):
             layer_name = item.get('name', 'Unknown Layer')
             symbols = item.get('symbols', [])
             
-            print(f"Drawing layer: {layer_name}, symbols: {len(symbols)}")
+            self.debug_print(f"Drawing layer: {layer_name}, symbols: {len(symbols)}")
             
             if symbols:
                 # Draw each symbol
@@ -186,7 +186,7 @@ class CanvasLegendOverlay(QWidget):
                     geometry_type = symbol_info.get('geometry_type', 'unknown')
                     label = symbol_info.get('label', layer_name)
                     
-                    print(f"  Drawing symbol {i} for {layer_name}: type={layer_type}, geom={geometry_type}, has_symbol={symbol is not None}")
+                    self.debug_print(f"  Drawing symbol {i} for {layer_name}: type={layer_type}, geom={geometry_type}, has_symbol={symbol is not None}")
                     
                     # Draw symbol with improved rendering
                     self.draw_symbol_safe(painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type)
@@ -196,7 +196,7 @@ class CanvasLegendOverlay(QWidget):
                     painter.setFont(QFont('Arial', 9))
                     text_x = padding + symbol_width + 15
                     painter.drawText(text_x, y_offset + 15, label)
-                    print(f"  - Symbol drawn for: {label}")
+                    self.debug_print(f"  - Symbol drawn for: {label}")
                     y_offset += line_height
             else:
                 # Layer without symbols - draw simple representation
@@ -224,7 +224,7 @@ class CanvasLegendOverlay(QWidget):
                 painter.setFont(QFont('Arial', 9))
                 text_x = padding + symbol_width + 15
                 painter.drawText(text_x, y_offset + 15, layer_name)
-                print(f"  - Simple rect drawn for: {layer_name}")
+                self.debug_print(f"  - Simple rect drawn for: {layer_name}")
                 y_offset += line_height
                 
         return y_offset
@@ -233,7 +233,7 @@ class CanvasLegendOverlay(QWidget):
         """Draw symbol with multiple fallback methods"""
         method_used = "none"
         try:
-            print(f"    draw_symbol_safe: layer_type={layer_type}, geometry_type={geometry_type}, has_symbol={symbol is not None}")
+            self.debug_print(f"    draw_symbol_safe: layer_type={layer_type}, geometry_type={geometry_type}, has_symbol={symbol is not None}")
             
             if symbol and layer_type != 'raster':
                 # Method 1: Try asImage (best for getting actual rendered symbol)
@@ -245,10 +245,10 @@ class CanvasLegendOverlay(QWidget):
                             pixmap = QPixmap.fromImage(image)
                             painter.drawPixmap(symbol_rect, pixmap)
                             method_used = "asImage"
-                            print(f"    -> SUCCESS: Used asImage method")
+                            self.debug_print(f"    -> SUCCESS: Used asImage method")
                             return
                     except Exception as e:
-                        print(f"    -> asImage failed: {e}")
+                        self.debug_print(f"    -> asImage failed: {e}")
                 
                 # Method 2: Try exportImage
                 if hasattr(symbol, 'exportImage'):
@@ -259,10 +259,10 @@ class CanvasLegendOverlay(QWidget):
                             pixmap = QPixmap.fromImage(image)
                             painter.drawPixmap(symbol_rect, pixmap)
                             method_used = "exportImage"
-                            print(f"    -> SUCCESS: Used exportImage method")
+                            self.debug_print(f"    -> SUCCESS: Used exportImage method")
                             return
                     except Exception as e:
-                        print(f"    -> exportImage failed: {e}")
+                        self.debug_print(f"    -> exportImage failed: {e}")
                 
                 # Method 3: Custom rendering based on geometry type
                 pixmap = QPixmap(symbol_rect.width(), symbol_rect.height())
@@ -275,7 +275,7 @@ class CanvasLegendOverlay(QWidget):
                         
                         # Get symbol color
                         symbol_color_to_use = symbol.color() if hasattr(symbol, 'color') else symbol_color
-                        print(f"    -> Custom rendering with color: {symbol_color_to_use.name() if symbol_color_to_use else 'None'}")
+                        self.debug_print(f"    -> Custom rendering with color: {symbol_color_to_use.name() if symbol_color_to_use else 'None'}")
                         
                         # Different rendering based on geometry type
                         if geometry_type == 'point':
@@ -307,10 +307,10 @@ class CanvasLegendOverlay(QWidget):
                             symbol_painter.fillRect(0, 0, symbol_rect.width(), symbol_rect.height(), symbol_color_to_use)
                             method_used = "custom_default"
                             
-                        print(f"    -> SUCCESS: Used {method_used} method")
+                        self.debug_print(f"    -> SUCCESS: Used {method_used} method")
                             
                     except Exception as render_error:
-                        print(f"    -> Custom rendering failed: {render_error}")
+                        self.debug_print(f"    -> Custom rendering failed: {render_error}")
                         # Emergency fallback within the painter context
                         color = symbol.color() if hasattr(symbol, 'color') else symbol_color or QColor('lightgray')
                         symbol_painter.fillRect(0, 0, symbol_rect.width(), symbol_rect.height(), color)
@@ -344,14 +344,14 @@ class CanvasLegendOverlay(QWidget):
                             else:
                                 painter.fillRect(symbol_rect, color)
                                 method_used = "direct_fill"
-                            print(f"    -> SUCCESS: Used {method_used} method")
+                            self.debug_print(f"    -> SUCCESS: Used {method_used} method")
                             return
                     except Exception as e:
-                        print(f"    -> Direct color failed: {e}")
+                        self.debug_print(f"    -> Direct color failed: {e}")
             
             # Method 5: Use provided symbol_color with geometry awareness
             if symbol_color and symbol_color.isValid():
-                print(f"    -> Using provided symbol_color: {symbol_color.name()}")
+                self.debug_print(f"    -> Using provided symbol_color: {symbol_color.name()}")
                 if geometry_type == 'point':
                     painter.setBrush(symbol_color)
                     painter.setPen(QPen(symbol_color.darker(120), 1))
@@ -368,11 +368,11 @@ class CanvasLegendOverlay(QWidget):
                 else:
                     painter.fillRect(symbol_rect, symbol_color)
                     method_used = "provided_fill"
-                print(f"    -> SUCCESS: Used {method_used} method")
+                self.debug_print(f"    -> SUCCESS: Used {method_used} method")
                 return
                 
             # Method 6: Default colors by layer type and geometry
-            print(f"    -> Using default colors for {layer_type}/{geometry_type}")
+            self.debug_print(f"    -> Using default colors for {layer_type}/{geometry_type}")
             if layer_type == 'raster':
                 painter.fillRect(symbol_rect, QColor(200, 200, 200))  # Light gray for rasters
                 method_used = "default_raster"
@@ -420,11 +420,17 @@ class CanvasLegendDialog(QDialog):
         self.canvas = iface.mapCanvas()
         self.legend_overlay = None
         self.auto_update_enabled = True
+        self.debug_mode = False  # Debug mode disabled by default
         
         self.setupUi()
         self.load_settings()
         self.connect_signals()
         self.connect_layer_signals()
+        
+    def debug_print(self, message):
+        """Print debug message only if debug mode is enabled"""
+        if self.debug_mode:
+            print(message)
         
     def connect_layer_signals(self):
         """Connect signals to detect layer changes"""
@@ -437,11 +443,13 @@ class CanvasLegendDialog(QDialog):
             QgsProject.instance().layersAdded.connect(self.on_layers_changed)
             QgsProject.instance().layersRemoved.connect(self.on_layers_changed)
             
-            # Connect to layer style changes
-            QgsProject.instance().layerStyleChanged.connect(self.on_layer_style_changed)
+            # Connect to layer style changes (use different signal)
+            # QgsProject.instance().layerStyleChanged.connect(self.on_layer_style_changed)
+            # Use legendLayersAdded instead as it's more reliable
+            QgsProject.instance().legendLayersAdded.connect(self.on_layers_changed)
             
         except Exception as e:
-            print(f"Error connecting layer signals: {e}")
+            self.debug_print(f"Error connecting layer signals: {e}")
             
     def on_layer_visibility_changed(self, node):
         """Handle layer visibility changes"""
@@ -476,11 +484,11 @@ class CanvasLegendDialog(QDialog):
                 self.position_overlay()
                 
         except Exception as e:
-            print(f"Error auto-updating legend: {e}")
+            self.debug_print(f"Error auto-updating legend: {e}")
         
     def setupUi(self):
         """Set up the user interface"""
-        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 04'))
+        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 05'))
         self.setMinimumSize(400, 600)
         
         layout = QVBoxLayout(self)
@@ -669,6 +677,11 @@ class CanvasLegendDialog(QDialog):
         self.auto_update_check.toggled.connect(self.toggle_auto_update)
         layers_layout.addWidget(self.auto_update_check)
         
+        self.debug_mode_check = QCheckBox(self.tr('Debug mode (for development)'))
+        self.debug_mode_check.setChecked(False)
+        self.debug_mode_check.toggled.connect(self.toggle_debug_mode)
+        layers_layout.addWidget(self.debug_mode_check)
+        
         layout.addWidget(layers_group)
         layout.addStretch()
         
@@ -720,7 +733,7 @@ class CanvasLegendDialog(QDialog):
             self.position_combo.setCurrentText(position.replace('_', ' ').title())
             
         except Exception as e:
-            print(f"Error loading settings: {e}")
+            self.debug_print(f"Error loading settings: {e}")
             
     def save_settings(self):
         """Save current settings to Arcadia Suite configuration"""
@@ -729,7 +742,7 @@ class CanvasLegendDialog(QDialog):
             set_arcadia_setting('CANVAS_LEGEND', 'default_position', position)
                               
         except Exception as e:
-            print(f"Error saving settings: {e}")
+            self.debug_print(f"Error saving settings: {e}")
             
     def preview_legend(self):
         """Preview the legend overlay on canvas"""
@@ -801,7 +814,7 @@ class CanvasLegendDialog(QDialog):
                     # Single layer
                     layer = node.layer()
                     if node.isVisible() and layer.isValid():
-                        print(f"Processing layer: {layer.name()}, visible: {node.isVisible()}, type: {layer.type()}")
+                        self.debug_print(f"Processing layer: {layer.name()}, visible: {node.isVisible()}, type: {layer.type()}")
                         
                         layer_item = {
                             'name': layer.name(),
@@ -814,15 +827,15 @@ class CanvasLegendDialog(QDialog):
                         # Get symbols for all layer types
                         symbols = self.get_layer_symbols(layer)
                         layer_item['symbols'] = symbols
-                        print(f"  -> Found {len(symbols)} symbols for {layer.name()}")
+                        self.debug_print(f"  -> Found {len(symbols)} symbols for {layer.name()}")
                         for i, sym in enumerate(symbols):
-                            print(f"    Symbol {i}: label='{sym.get('label')}', type='{sym.get('layer_type')}', geom='{sym.get('geometry_type')}'")
+                            self.debug_print(f"    Symbol {i}: label='{sym.get('label')}', type='{sym.get('layer_type')}', geom='{sym.get('geometry_type')}'")
                         items.append(layer_item)
                         
                 elif hasattr(node, 'children'):
                     # Group - process children individually
                     group_visible = node.isVisible()
-                    print(f"Processing group: {node.name()}, visible: {group_visible}")
+                    self.debug_print(f"Processing group: {node.name()}, visible: {group_visible}")
                     
                     if group_visible:
                         # Add group header if it has visible children
@@ -863,23 +876,33 @@ class CanvasLegendDialog(QDialog):
                 process_node(child)
                             
         except Exception as e:
-            print(f"Error getting legend items: {e}")
+            self.debug_print(f"Error getting legend items: {e}")
             import traceback
-            traceback.print_exc()
+            if self.debug_mode:
+                traceback.print_exc()
         
-        print(f"Total legend items found: {len(items)}")
+        self.debug_print(f"Total legend items found: {len(items)}")
         return items
     
     def get_layer_symbols(self, layer):
         """Get symbols for a layer"""
         symbols = []
         try:
-            print(f"=== get_layer_symbols for {layer.name()} ===")
-            print(f"Layer type: {layer.type()} (0=Raster, 1=Vector)")
+            self.debug_print(f"=== get_layer_symbols for {layer.name()} ===")
+            layer_type_int = layer.type()
+            self.debug_print(f"Layer type: {layer_type_int} (0=Raster, 1=Vector, 2=Plugin)")
+            self.debug_print(f"Layer class: {layer.__class__.__name__}")
+            
+            # More robust layer type detection
+            layer_type_name = layer.__class__.__name__
+            is_vector = 'Vector' in layer_type_name or hasattr(layer, 'geometryType')
+            is_raster = 'Raster' in layer_type_name or hasattr(layer, 'bandCount')
+            
+            self.debug_print(f"-> is_vector: {is_vector}, is_raster: {is_raster}")
             
             # Handle raster layers
-            if layer.type() == 0:  # QgsMapLayer.RasterLayer
-                print(f"-> Raster layer detected")
+            if is_raster and not is_vector:
+                self.debug_print(f"-> Raster layer detected (class-based)")
                 symbols.append({
                     'label': layer.name(),
                     'symbol': None,
@@ -890,23 +913,27 @@ class CanvasLegendDialog(QDialog):
                 return symbols
             
             # Handle vector layers
-            if layer.type() == 1:  # QgsMapLayer.VectorLayer
-                print(f"-> Vector layer detected")
+            if is_vector:
+                self.debug_print(f"-> Vector layer detected (class-based)")
                 # Get geometry type
                 geometry_type = 'unknown'
                 if hasattr(layer, 'geometryType'):
-                    geom_type = layer.geometryType()
-                    if geom_type == 0:  # Point
-                        geometry_type = 'point'
-                    elif geom_type == 1:  # Line
-                        geometry_type = 'line'
-                    elif geom_type == 2:  # Polygon
-                        geometry_type = 'polygon'
+                    try:
+                        geom_type = layer.geometryType()
+                        self.debug_print(f"-> Raw geometry type: {geom_type}")
+                        if geom_type == 0:  # Point
+                            geometry_type = 'point'
+                        elif geom_type == 1:  # Line
+                            geometry_type = 'line'
+                        elif geom_type == 2:  # Polygon
+                            geometry_type = 'polygon'
+                    except Exception as e:
+                        self.debug_print(f"-> Error getting geometry type: {e}")
                 
-                print(f"-> Geometry type: {geometry_type} (geom_type={geom_type if 'geom_type' in locals() else 'N/A'})")
+                self.debug_print(f"-> Geometry type: {geometry_type}")
                 
                 if not hasattr(layer, 'renderer') or not layer.renderer():
-                    print(f"-> Layer {layer.name()} has no renderer")
+                    self.debug_print(f"-> Layer {layer.name()} has no renderer")
                     symbols.append({
                         'label': layer.name(),
                         'symbol': None,
@@ -918,15 +945,15 @@ class CanvasLegendDialog(QDialog):
                     
                 renderer = layer.renderer()
                 renderer_type = renderer.type()
-                print(f"-> Renderer type: {renderer_type}")
+                self.debug_print(f"-> Renderer type: {renderer_type}")
                 
                 if renderer_type == 'singleSymbol':
-                    print(f"-> Processing singleSymbol renderer")
+                    self.debug_print(f"-> Processing singleSymbol renderer")
                     # Single symbol renderer
                     symbol = renderer.symbol()
                     if symbol:
                         symbol_color = symbol.color() if hasattr(symbol, 'color') else QColor('blue')
-                        print(f"-> Symbol found, color: {symbol_color.name()}")
+                        self.debug_print(f"-> Symbol found, color: {symbol_color.name()}")
                         symbols.append({
                             'label': layer.name(),
                             'symbol': symbol,
@@ -935,7 +962,7 @@ class CanvasLegendDialog(QDialog):
                             'geometry_type': geometry_type
                         })
                     else:
-                        print(f"-> No symbol in singleSymbol renderer")
+                        self.debug_print(f"-> No symbol in singleSymbol renderer")
                         
                 elif renderer_type == 'categorizedSymbol':
                     # Categorized renderer
@@ -1005,7 +1032,7 @@ class CanvasLegendDialog(QDialog):
                 })
                         
         except Exception as e:
-            print(f"Error getting symbols for layer {layer.name()}: {e}")
+            self.debug_print(f"Error getting symbols for layer {layer.name()}: {e}")
             # Fallback: create a basic symbol representation
             symbols.append({
                 'label': layer.name(),
@@ -1015,7 +1042,7 @@ class CanvasLegendDialog(QDialog):
                 'geometry_type': 'unknown'
             })
         
-        print(f"Found {len(symbols)} symbols for layer {layer.name()}")
+        self.debug_print(f"Found {len(symbols)} symbols for layer {layer.name()}")
         return symbols
         
     def position_overlay(self):
@@ -1129,6 +1156,11 @@ class CanvasLegendDialog(QDialog):
         """Toggle automatic legend updates"""
         self.auto_update_enabled = enabled
         
+    def toggle_debug_mode(self, enabled):
+        """Toggle debug mode"""
+        self.debug_mode = enabled
+        self.debug_print(f"Debug mode {'enabled' if enabled else 'disabled'}")
+        
     def hide_legend(self):
         """Hide the legend overlay without closing the dialog"""
         try:
@@ -1193,7 +1225,7 @@ class CanvasLegendDialog(QDialog):
             
             QgsProject.instance().layersAdded.disconnect(self.on_layers_changed)
             QgsProject.instance().layersRemoved.disconnect(self.on_layers_changed)
-            QgsProject.instance().layerStyleChanged.disconnect(self.on_layer_style_changed)
+            QgsProject.instance().legendLayersAdded.disconnect(self.on_layers_changed)
             
         except Exception as e:
             print(f"Error disconnecting signals: {e}")

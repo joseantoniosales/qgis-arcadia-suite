@@ -194,16 +194,21 @@ class CanvasLegendOverlay(QWidget):
                     layer_type = symbol_info.get('layer_type', 'unknown')
                     geometry_type = symbol_info.get('geometry_type', 'unknown')
                     label = symbol_info.get('label', layer_name)
+                    text_only = symbol_info.get('text_only', False)
                     
-                    self.debug_print(f"  Drawing symbol {i} for {layer_name}: type={layer_type}, geom={geometry_type}, has_symbol={symbol is not None}")
+                    self.debug_print(f"  Drawing symbol {i} for {layer_name}: type={layer_type}, geom={geometry_type}, has_symbol={symbol is not None}, text_only={text_only}")
                     
-                    # Draw symbol with improved rendering
-                    self.draw_symbol_safe(painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type)
+                    # Draw symbol only if not text_only
+                    if not text_only:
+                        self.draw_symbol_safe(painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type)
+                    else:
+                        self.debug_print(f"  - Skipping symbol draw for text-only layer: {label}")
                     
                     # Draw label with better positioning
                     painter.setPen(QColor('black'))
                     painter.setFont(QFont('Arial', 9))
-                    text_x = padding + symbol_width + 15
+                    # Adjust text position for text-only items (no symbol space needed)
+                    text_x = padding + (symbol_width + 15 if not text_only else 5)
                     painter.drawText(text_x, y_offset + 15, label)
                     self.debug_print(f"  - Symbol drawn for: {label}")
                     y_offset += line_height
@@ -497,7 +502,7 @@ class CanvasLegendDialog(QDialog):
         
     def setupUi(self):
         """Set up the user interface"""
-        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 05'))
+        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 07'))
         self.setMinimumSize(400, 600)
         
         layout = QVBoxLayout(self)
@@ -913,13 +918,69 @@ class CanvasLegendDialog(QDialog):
             # Handle raster layers
             if is_raster and not is_vector:
                 self.debug_print(f"-> Raster layer detected (class-based)")
-                symbols.append({
-                    'label': layer.name(),
-                    'symbol': None,
-                    'color': QColor('lightgray'),  # Default color for rasters
-                    'layer_type': 'raster',
-                    'geometry_type': 'raster'
-                })
+                
+                # Analyze raster renderer type
+                renderer = layer.renderer() if hasattr(layer, 'renderer') else None
+                renderer_type = renderer.type() if renderer else 'unknown'
+                band_count = layer.bandCount() if hasattr(layer, 'bandCount') else 1
+                
+                self.debug_print(f"-> Raster renderer type: {renderer_type}")
+                self.debug_print(f"-> Band count: {band_count}")
+                
+                # Handle different raster types
+                if renderer_type == 'singlebandpseudocolor':
+                    # Pseudocolor raster - show color ramp
+                    self.debug_print(f"-> Pseudocolor raster - generating color ramp")
+                    if hasattr(renderer, 'shader') and renderer.shader():
+                        shader = renderer.shader()
+                        if hasattr(shader, 'rasterShaderFunction'):
+                            ramp_function = shader.rasterShaderFunction()
+                            if hasattr(ramp_function, 'colorRampItemList'):
+                                color_items = ramp_function.colorRampItemList()
+                                if color_items:
+                                    # Create multiple symbols for the color ramp
+                                    for i, item in enumerate(color_items[:5]):  # Max 5 colors to avoid overcrowding
+                                        symbols.append({
+                                            'label': f"{item.label}" if hasattr(item, 'label') and item.label else f"Value {item.value:.2f}" if hasattr(item, 'value') else f"Color {i+1}",
+                                            'symbol': None,
+                                            'color': item.color if hasattr(item, 'color') else QColor('gray'),
+                                            'layer_type': 'raster_pseudocolor',
+                                            'geometry_type': 'raster'
+                                        })
+                                    return symbols
+                    
+                    # Fallback for pseudocolor without detailed ramp info
+                    symbols.append({
+                        'label': f"{layer.name()} (Pseudocolor)",
+                        'symbol': None,
+                        'color': QColor('blue'),
+                        'layer_type': 'raster_pseudocolor',
+                        'geometry_type': 'raster'
+                    })
+                    
+                elif renderer_type == 'multibandcolor' or band_count >= 3:
+                    # RGB/Multiband raster - no symbol, just text
+                    self.debug_print(f"-> RGB/Multiband raster - text only")
+                    symbols.append({
+                        'label': layer.name(),
+                        'symbol': None,
+                        'color': None,  # No color = no symbol drawn
+                        'layer_type': 'raster_rgb',
+                        'geometry_type': 'raster',
+                        'text_only': True  # Special flag for text-only display
+                    })
+                    
+                else:
+                    # Single band grayscale or other - simple symbol
+                    self.debug_print(f"-> Other raster type - simple symbol")
+                    symbols.append({
+                        'label': layer.name(),
+                        'symbol': None,
+                        'color': QColor('lightgray'),
+                        'layer_type': 'raster_other',
+                        'geometry_type': 'raster'
+                    })
+                
                 return symbols
             
             # Handle vector layers

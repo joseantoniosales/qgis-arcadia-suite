@@ -5,9 +5,9 @@ Provides processing tools for batch operations and automation
 
 from qgis.core import (QgsProcessingProvider, QgsProcessingAlgorithm,
                       QgsProcessingParameterBoolean, QgsProcessingParameterString,
-                      QgsProcessingParameterNumber, QgsProcessingParameterFile,
-                      QgsProcessingOutputString, QgsProcessingException,
-                      QgsProject, QgsApplication)
+                      QgsProcessingParameterNumber, QgsProcessingOutputString, 
+                      QgsProcessingException, QgsProject, QgsApplication, 
+                      QgsProcessingParameterFileDestination)
 from qgis.PyQt.QtCore import QCoreApplication
 from qgis.PyQt.QtGui import QIcon
 import os
@@ -74,19 +74,10 @@ class ExportCanvasWithLegendAlgorithm(QgsProcessingAlgorithm):
     def initAlgorithm(self, config=None):
         """Initialize algorithm parameters"""
         
-        # Código compatible con diferentes versiones de QGIS
-        try:
-            # Para versiones más recientes
-            save_behavior = QgsProcessingParameterFile.Behavior.Save
-        except AttributeError:
-            # Para versiones más antiguas
-            save_behavior = 1
-
         self.addParameter(
-            QgsProcessingParameterFile(
+            QgsProcessingParameterFileDestination(
                 self.OUTPUT_FILE,
                 self.tr('Output file'),
-                behavior=save_behavior,
                 fileFilter='PNG files (*.png);;JPEG files (*.jpg);;PDF files (*.pdf)'
             )
         )

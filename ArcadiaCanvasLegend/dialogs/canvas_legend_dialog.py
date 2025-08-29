@@ -46,35 +46,61 @@ class CanvasLegendOverlay(QWidget):
     def calculate_optimal_size(self):
         """Calculate optimal size based on content"""
         if not self.legend_items:
+            self.resize(200, 100)  # Minimum size
             return
             
-        # Basic calculation - would be refined based on actual content
-        line_height = 20
-        padding = 10
-        symbol_width = 30
-        text_width = 150  # Estimated
+        # Basic calculation - refined based on actual content
+        line_height = 22  # Increased for better spacing
+        padding = 15
+        symbol_width = 25
+        text_width = 200  # Increased for longer names
+        min_width = 150
         
         height = padding * 2
+        max_text_width = 0
+        
+        # Add title height if enabled
         if self.settings.get('show_title', True):
-            height += 25  # Title height
+            height += 30  # Title height with spacing
+            title_text = self.settings.get('title_text', 'Map Legend')
+            # Estimate title width (rough calculation)
+            title_width = len(title_text) * 8  # Approximate
+            max_text_width = max(max_text_width, title_width)
             
-        # Count visible items
+        # Count visible items and calculate text width needs
         total_items = 0
         for item in self.legend_items:
             if item.get('type') == 'group':
                 total_items += 1  # Group title
-                total_items += len(item.get('children', []))
+                group_name_width = len(item.get('name', '')) * 7
+                max_text_width = max(max_text_width, group_name_width)
+                
+                children = item.get('children', [])
+                for child in children:
+                    total_items += 1
+                    child_name_width = len(child.get('name', '')) * 6
+                    max_text_width = max(max_text_width, child_name_width)
+                    
             else:
                 symbols = item.get('symbols', [])
                 if symbols:
-                    total_items += len(symbols)
+                    for symbol_info in symbols:
+                        total_items += 1
+                        label_width = len(symbol_info.get('label', '')) * 6
+                        max_text_width = max(max_text_width, label_width)
                 else:
                     total_items += 1
+                    layer_name_width = len(item.get('name', '')) * 6
+                    max_text_width = max(max_text_width, layer_name_width)
                     
         height += total_items * line_height
-        width = symbol_width + text_width + padding * 2
         
-        self.resize(width, height)
+        # Calculate width based on content
+        content_width = symbol_width + max(max_text_width, text_width) + padding * 3
+        width = max(min_width, content_width)
+        
+        print(f"Calculated size: {width}x{height} for {total_items} items")
+        self.resize(int(width), int(height))
         
     def paintEvent(self, event):
         """Paint the legend overlay"""
@@ -123,15 +149,17 @@ class CanvasLegendOverlay(QWidget):
             
     def draw_legend_item(self, painter, item, y_offset):
         """Draw individual legend item"""
-        line_height = 20
+        line_height = 22  # Increased spacing
         symbol_width = 20
-        padding = 10
+        padding = 15
         
         if item.get('type') == 'group':
             # Draw group name
             painter.setPen(QColor('black'))
             painter.setFont(QFont('Arial', 10, QFont.Bold))
-            painter.drawText(padding, y_offset + 15, item.get('name', 'Unknown Group'))
+            group_name = item.get('name', 'Unknown Group')
+            painter.drawText(padding, y_offset + 15, group_name)
+            print(f"Drawing group: {group_name}")
             y_offset += line_height
             
             # Draw children
@@ -141,122 +169,104 @@ class CanvasLegendOverlay(QWidget):
                 
         else:
             # Draw layer
+            layer_name = item.get('name', 'Unknown Layer')
             symbols = item.get('symbols', [])
+            
+            print(f"Drawing layer: {layer_name}, symbols: {len(symbols)}")
+            
             if symbols:
                 # Draw each symbol
                 for symbol_info in symbols:
-                    symbol_rect = QRect(padding + 5, y_offset + 2, symbol_width, self.symbol_size)
+                    symbol_rect = QRect(padding + 5, y_offset + 3, symbol_width, 16)
                     
-                    # Try to render actual symbol
+                    # Get symbol and color info
                     symbol = symbol_info.get('symbol')
-                    symbol_color = symbol_info.get('color')
+                    symbol_color = symbol_info.get('color', QColor('lightgray'))
+                    layer_type = symbol_info.get('layer_type', 'unknown')
+                    label = symbol_info.get('label', layer_name)
                     
-                    if symbol:
-                        try:
-                            # Method 1: Try to use drawPreviewIcon (most reliable)
-                            if hasattr(symbol, 'drawPreviewIcon'):
-                                try:
-                                    icon_pixmap = symbol.drawPreviewIcon(None, QSize(symbol_width, self.symbol_size))
-                                    if icon_pixmap and not icon_pixmap.isNull():
-                                        painter.drawPixmap(symbol_rect, icon_pixmap)
-                                        continue
-                                except Exception:
-                                    pass
-                            
-                            # Method 2: Try direct color rendering
-                            if hasattr(symbol, 'color'):
-                                try:
-                                    color = symbol.color()
-                                    if color.isValid():
-                                        painter.fillRect(symbol_rect, color)
-                                        continue
-                                except Exception:
-                                    pass
-                            
-                            # Method 3: Create separate pixmap for complex rendering
-                            pixmap = QPixmap(symbol_width, self.symbol_size)
-                            pixmap.fill(Qt.transparent)
-                            
-                            symbol_painter = QPainter()
-                            if symbol_painter.begin(pixmap):
-                                try:
-                                    symbol_painter.setRenderHint(QPainter.Antialiasing)
-                                    
-                                    # Try renderPoint method
-                                    if hasattr(symbol, 'startRender') and hasattr(symbol, 'renderPoint'):
-                                        symbol.startRender(symbol_painter)
-                                        center_point = QPointF(symbol_width/2, self.symbol_size/2)
-                                        symbol.renderPoint(center_point, symbol_painter)
-                                        symbol.stopRender(symbol_painter)
-                                    else:
-                                        # Simple fallback - fill with color
-                                        if hasattr(symbol, 'color'):
-                                            symbol_painter.fillRect(0, 0, symbol_width, self.symbol_size, symbol.color())
-                                        else:
-                                            symbol_painter.fillRect(0, 0, symbol_width, self.symbol_size, QColor('lightblue'))
-                                            
-                                except Exception as render_error:
-                                    print(f"Error in symbol rendering: {render_error}")
-                                    # Emergency fallback within the painter context
-                                    symbol_painter.fillRect(0, 0, symbol_width, self.symbol_size, QColor('lightgray'))
-                                finally:
-                                    symbol_painter.end()
-                                    
-                                # Draw the rendered symbol
-                                painter.drawPixmap(symbol_rect, pixmap)
-                            else:
-                                # Failed to begin painting - use direct color fallback
-                                raise Exception("Failed to begin symbol painter")
-                                
-                        except Exception as e:
-                            # Fallback to colored rectangle if all symbol rendering fails
-                            print(f"Error rendering symbol: {e}")
-                            if symbol_color:
-                                painter.fillRect(symbol_rect, symbol_color)
-                            elif hasattr(symbol, 'color'):
-                                try:
-                                    painter.fillRect(symbol_rect, symbol.color())
-                                except:
-                                    painter.fillRect(symbol_rect, QColor('lightblue'))
-                            else:
-                                painter.fillRect(symbol_rect, QColor('lightblue'))
-                    elif symbol_color:
-                        # Use the stored color
-                        painter.fillRect(symbol_rect, symbol_color)
-                    else:
-                        # Final fallback
-                        painter.fillRect(symbol_rect, QColor('lightgray'))
+                    # Draw symbol with improved rendering
+                    self.draw_symbol_safe(painter, symbol_rect, symbol, symbol_color, layer_type)
                     
-                    # Draw label
+                    # Draw label with better positioning
                     painter.setPen(QColor('black'))
-                    text_x = padding + symbol_width + 10
-                    painter.drawText(text_x, y_offset + 15, symbol_info.get('label', 'Unknown'))
+                    painter.setFont(QFont('Arial', 9))
+                    text_x = padding + symbol_width + 15
+                    painter.drawText(text_x, y_offset + 15, label)
+                    print(f"  - Symbol drawn for: {label}")
                     y_offset += line_height
             else:
-                # Simple layer item without symbols - draw layer color or default
-                symbol_rect = QRect(padding + 5, y_offset + 2, symbol_width, self.symbol_size)
+                # Layer without symbols - draw simple representation
+                symbol_rect = QRect(padding + 5, y_offset + 3, symbol_width, 16)
                 
-                # Try to get layer color from renderer
+                # Try to get layer color from renderer or use default
                 layer = item.get('layer')
-                if layer and hasattr(layer, 'renderer') and layer.renderer():
-                    renderer = layer.renderer()
-                    if hasattr(renderer, 'symbol') and renderer.symbol():
-                        symbol = renderer.symbol()
-                        if hasattr(symbol, 'color'):
-                            painter.fillRect(symbol_rect, symbol.color())
-                        else:
-                            painter.fillRect(symbol_rect, QColor('lightblue'))
-                    else:
-                        painter.fillRect(symbol_rect, QColor('lightblue'))
-                else:
-                    painter.fillRect(symbol_rect, QColor('lightgray'))
+                default_color = QColor('lightgray')
                 
+                if layer:
+                    try:
+                        if hasattr(layer, 'renderer') and layer.renderer():
+                            renderer = layer.renderer()
+                            if hasattr(renderer, 'symbol') and renderer.symbol():
+                                symbol = renderer.symbol()
+                                if hasattr(symbol, 'color'):
+                                    default_color = symbol.color()
+                    except:
+                        pass
+                
+                painter.fillRect(symbol_rect, default_color)
+                
+                # Draw layer name
                 painter.setPen(QColor('black'))
-                text_x = padding + symbol_width + 10
-                painter.drawText(text_x, y_offset + 15, item.get('name', 'Unknown'))
+                painter.setFont(QFont('Arial', 9))
+                text_x = padding + symbol_width + 15
+                painter.drawText(text_x, y_offset + 15, layer_name)
+                print(f"  - Simple rect drawn for: {layer_name}")
                 y_offset += line_height
                 
         return y_offset
+    
+    def draw_symbol_safe(self, painter, symbol_rect, symbol, symbol_color, layer_type):
+        """Draw symbol with multiple fallback methods"""
+        try:
+            if symbol and layer_type != 'raster':
+                # Method 1: Try drawPreviewIcon (most reliable for vector symbols)
+                if hasattr(symbol, 'drawPreviewIcon'):
+                    try:
+                        icon_pixmap = symbol.drawPreviewIcon(None, QSize(symbol_rect.width(), symbol_rect.height()))
+                        if icon_pixmap and not icon_pixmap.isNull():
+                            painter.drawPixmap(symbol_rect, icon_pixmap)
+                            return
+                    except Exception as e:
+                        print(f"drawPreviewIcon failed: {e}")
+                
+                # Method 2: Try color from symbol
+                if hasattr(symbol, 'color'):
+                    try:
+                        color = symbol.color()
+                        if color.isValid():
+                            painter.fillRect(symbol_rect, color)
+                            return
+                    except Exception as e:
+                        print(f"symbol.color() failed: {e}")
+            
+            # Method 3: Use provided symbol_color
+            if symbol_color and symbol_color.isValid():
+                painter.fillRect(symbol_rect, symbol_color)
+                return
+                
+            # Method 4: Default colors by layer type
+            if layer_type == 'raster':
+                painter.fillRect(symbol_rect, QColor(200, 200, 200))  # Light gray for rasters
+            elif layer_type == 'vector':
+                painter.fillRect(symbol_rect, QColor(100, 150, 200))  # Light blue for vectors
+            else:
+                painter.fillRect(symbol_rect, QColor(180, 180, 180))  # Gray for unknown
+                
+        except Exception as e:
+            print(f"Error in draw_symbol_safe: {e}")
+            # Emergency fallback
+            painter.fillRect(symbol_rect, QColor('lightgray'))
 
 
 class CanvasLegendDialog(QDialog):
@@ -641,118 +651,173 @@ class CanvasLegendDialog(QDialog):
             # Get layer tree root
             root = QgsProject.instance().layerTreeRoot()
             
-            # Process each layer or group
-            for child in root.children():
-                if hasattr(child, 'layer') and child.layer() is not None:
+            # Process all visible layers directly (simpler approach)
+            def process_node(node, is_group_child=False):
+                nonlocal items
+                
+                if hasattr(node, 'layer') and node.layer() is not None:
                     # Single layer
-                    layer = child.layer()
-                    if child.isVisible() and layer.isValid():
+                    layer = node.layer()
+                    if node.isVisible() and layer.isValid():
+                        print(f"Processing layer: {layer.name()}, visible: {node.isVisible()}")
+                        
                         layer_item = {
                             'name': layer.name(),
                             'type': 'layer',
                             'layer': layer,
-                            'visible': child.isVisible()
+                            'visible': node.isVisible(),
+                            'is_group_child': is_group_child
                         }
                         
-                        # Get symbols if it's a vector layer
-                        if hasattr(layer, 'renderer') and layer.renderer():
-                            layer_item['symbols'] = self.get_layer_symbols(layer)
-                        
+                        # Get symbols for all layer types
+                        layer_item['symbols'] = self.get_layer_symbols(layer)
                         items.append(layer_item)
                         
-                elif hasattr(child, 'children'):
-                    # Group
-                    if child.isVisible():
-                        group_item = {
-                            'name': child.name(),
-                            'type': 'group',
-                            'visible': child.isVisible(),
-                            'children': []
-                        }
+                elif hasattr(node, 'children'):
+                    # Group - process children individually
+                    group_visible = node.isVisible()
+                    print(f"Processing group: {node.name()}, visible: {group_visible}")
+                    
+                    if group_visible:
+                        # Add group header if it has visible children
+                        has_visible_children = False
+                        group_children = []
                         
-                        # Process children of the group
-                        for group_child in child.children():
-                            if hasattr(group_child, 'layer') and group_child.layer() is not None:
-                                layer = group_child.layer()
-                                if group_child.isVisible() and layer.isValid():
+                        for child in node.children():
+                            if hasattr(child, 'layer') and child.layer() is not None:
+                                layer = child.layer()
+                                child_visible = child.isVisible() and group_visible
+                                if child_visible and layer.isValid():
+                                    has_visible_children = True
                                     layer_item = {
                                         'name': layer.name(),
                                         'type': 'layer',
                                         'layer': layer,
-                                        'visible': group_child.isVisible()
+                                        'visible': child_visible,
+                                        'is_group_child': True
                                     }
-                                    
-                                    # Get symbols if it's a vector layer
-                                    if hasattr(layer, 'renderer') and layer.renderer():
-                                        layer_item['symbols'] = self.get_layer_symbols(layer)
-                                    
-                                    group_item['children'].append(layer_item)
+                                    layer_item['symbols'] = self.get_layer_symbols(layer)
+                                    group_children.append(layer_item)
+                            else:
+                                # Nested group
+                                process_node(child, True)
                         
-                        if group_item['children']:  # Only add groups that have visible children
+                        if has_visible_children:
+                            # Add group header
+                            group_item = {
+                                'name': node.name(),
+                                'type': 'group',
+                                'visible': group_visible,
+                                'children': group_children
+                            }
                             items.append(group_item)
+            
+            # Process all root children
+            for child in root.children():
+                process_node(child)
                             
         except Exception as e:
             print(f"Error getting legend items: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        print(f"Total legend items found: {len(items)}")
         return items
     
     def get_layer_symbols(self, layer):
         """Get symbols for a layer"""
         symbols = []
         try:
-            renderer = layer.renderer()
-            if renderer:
-                # Handle different renderer types
-                renderer_type = renderer.type()
+            print(f"Getting symbols for layer: {layer.name()}, type: {layer.type()}")
+            
+            # Handle raster layers
+            if layer.type() == 0:  # QgsMapLayer.RasterLayer
+                symbols.append({
+                    'label': layer.name(),
+                    'symbol': None,
+                    'color': QColor('lightgray'),  # Default color for rasters
+                    'layer_type': 'raster'
+                })
+                return symbols
+            
+            # Handle vector layers
+            if not hasattr(layer, 'renderer') or not layer.renderer():
+                print(f"Layer {layer.name()} has no renderer")
+                symbols.append({
+                    'label': layer.name(),
+                    'symbol': None,
+                    'color': QColor('lightblue'),
+                    'layer_type': 'vector_no_renderer'
+                })
+                return symbols
                 
-                if renderer_type == 'singleSymbol':
-                    # Single symbol renderer
-                    symbol = renderer.symbol()
-                    if symbol:
+            renderer = layer.renderer()
+            renderer_type = renderer.type()
+            print(f"Renderer type: {renderer_type}")
+            
+            if renderer_type == 'singleSymbol':
+                # Single symbol renderer
+                symbol = renderer.symbol()
+                if symbol:
+                    symbols.append({
+                        'label': layer.name(),
+                        'symbol': symbol,
+                        'color': symbol.color() if hasattr(symbol, 'color') else QColor('blue'),
+                        'layer_type': 'vector'
+                    })
+                    
+            elif renderer_type == 'categorizedSymbol':
+                # Categorized renderer
+                for category in renderer.categories():
+                    if category.renderState():  # Only include enabled categories
+                        label = category.label() if category.label() else str(category.value())
                         symbols.append({
-                            'label': layer.name(),
-                            'symbol': symbol,
-                            'color': symbol.color() if hasattr(symbol, 'color') else None
+                            'label': label,
+                            'symbol': category.symbol(),
+                            'color': category.symbol().color() if hasattr(category.symbol(), 'color') else QColor('green'),
+                            'layer_type': 'vector'
                         })
                         
-                elif renderer_type == 'categorizedSymbol':
-                    # Categorized renderer
-                    for category in renderer.categories():
-                        if category.renderState():  # Only include enabled categories
+            elif renderer_type == 'graduatedSymbol':
+                # Graduated renderer
+                for range_item in renderer.ranges():
+                    symbols.append({
+                        'label': range_item.label(),
+                        'symbol': range_item.symbol(),
+                        'color': range_item.symbol().color() if hasattr(range_item.symbol(), 'color') else QColor('orange'),
+                        'layer_type': 'vector'
+                    })
+                    
+            elif renderer_type == 'RuleRenderer':
+                # Rule-based renderer
+                root_rule = renderer.rootRule()
+                if root_rule:
+                    for rule in root_rule.children():
+                        if rule.isActive() and rule.symbol():
+                            label = rule.label() or rule.filterExpression() or 'Rule'
                             symbols.append({
-                                'label': category.label() if category.label() else category.value(),
-                                'symbol': category.symbol(),
-                                'color': category.symbol().color() if hasattr(category.symbol(), 'color') else None
+                                'label': label,
+                                'symbol': rule.symbol(),
+                                'color': rule.symbol().color() if hasattr(rule.symbol(), 'color') else QColor('purple'),
+                                'layer_type': 'vector'
                             })
-                            
-                elif renderer_type == 'graduatedSymbol':
-                    # Graduated renderer
-                    for range_item in renderer.ranges():
-                        symbols.append({
-                            'label': range_item.label(),
-                            'symbol': range_item.symbol(),
-                            'color': range_item.symbol().color() if hasattr(range_item.symbol(), 'color') else None
-                        })
-                        
-                elif renderer_type == 'RuleRenderer':
-                    # Rule-based renderer
-                    root_rule = renderer.rootRule()
-                    if root_rule:
-                        for rule in root_rule.children():
-                            if rule.isActive() and rule.symbol():
-                                symbols.append({
-                                    'label': rule.label() or rule.filterExpression() or 'Rule',
-                                    'symbol': rule.symbol(),
-                                    'color': rule.symbol().color() if hasattr(rule.symbol(), 'color') else None
-                                })
+            else:
+                # Fallback for other renderer types
+                symbol = getattr(renderer, 'symbol', lambda: None)()
+                if symbol:
+                    symbols.append({
+                        'label': layer.name(),
+                        'symbol': symbol,
+                        'color': symbol.color() if hasattr(symbol, 'color') else QColor('red'),
+                        'layer_type': 'vector'
+                    })
                 else:
-                    # Fallback for other renderer types
-                    symbol = getattr(renderer, 'symbol', lambda: None)()
-                    if symbol:
-                        symbols.append({
-                            'label': layer.name(),
-                            'symbol': symbol,
-                            'color': symbol.color() if hasattr(symbol, 'color') else None
-                        })
+                    symbols.append({
+                        'label': layer.name(),
+                        'symbol': None,
+                        'color': QColor('gray'),
+                        'layer_type': 'vector'
+                    })
                         
         except Exception as e:
             print(f"Error getting symbols for layer {layer.name()}: {e}")
@@ -760,8 +825,11 @@ class CanvasLegendDialog(QDialog):
             symbols.append({
                 'label': layer.name(),
                 'symbol': None,
-                'color': QColor('lightblue')
+                'color': QColor('lightblue'),
+                'layer_type': 'unknown'
             })
+        
+        print(f"Found {len(symbols)} symbols for layer {layer.name()}")
         return symbols
         
     def position_overlay(self):

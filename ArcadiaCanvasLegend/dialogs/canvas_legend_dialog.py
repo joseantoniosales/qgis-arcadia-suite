@@ -9,7 +9,7 @@ from qgis.PyQt.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
                                 QCheckBox, QGroupBox, QTabWidget, QWidget, 
                                 QSlider, QFrame, QMessageBox, QApplication, 
                                 QFileDialog, QTextEdit, QLineEdit)
-from qgis.PyQt.QtGui import QFont, QPixmap, QPainter, QColor
+from qgis.PyQt.QtGui import QFont, QPixmap, QPainter, QColor, QPen
 from qgis.core import (QgsProject, QgsLayoutExporter, QgsLayoutItemMap, 
                       QgsLayoutItemLegend, QgsPrintLayout, QgsLayoutPoint,
                       QgsLayoutSize, QgsUnitTypes, QgsSymbolLayerUtils,
@@ -183,10 +183,11 @@ class CanvasLegendOverlay(QWidget):
                     symbol = symbol_info.get('symbol')
                     symbol_color = symbol_info.get('color', QColor('lightgray'))
                     layer_type = symbol_info.get('layer_type', 'unknown')
+                    geometry_type = symbol_info.get('geometry_type', 'unknown')
                     label = symbol_info.get('label', layer_name)
                     
                     # Draw symbol with improved rendering
-                    self.draw_symbol_safe(painter, symbol_rect, symbol, symbol_color, layer_type)
+                    self.draw_symbol_safe(painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type)
                     
                     # Draw label with better positioning
                     painter.setPen(QColor('black'))
@@ -226,42 +227,149 @@ class CanvasLegendOverlay(QWidget):
                 
         return y_offset
     
-    def draw_symbol_safe(self, painter, symbol_rect, symbol, symbol_color, layer_type):
+    def draw_symbol_safe(self, painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type='unknown'):
         """Draw symbol with multiple fallback methods"""
         try:
+            print(f"Drawing symbol - layer_type: {layer_type}, geometry_type: {geometry_type}")
+            
             if symbol and layer_type != 'raster':
-                # Method 1: Try drawPreviewIcon (most reliable for vector symbols)
-                if hasattr(symbol, 'drawPreviewIcon'):
+                # Method 1: Try asImage (best for getting actual rendered symbol)
+                if hasattr(symbol, 'asImage'):
                     try:
-                        icon_pixmap = symbol.drawPreviewIcon(None, QSize(symbol_rect.width(), symbol_rect.height()))
-                        if icon_pixmap and not icon_pixmap.isNull():
-                            painter.drawPixmap(symbol_rect, icon_pixmap)
+                        size = symbol_rect.size()
+                        image = symbol.asImage(size)
+                        if image and not image.isNull():
+                            pixmap = QPixmap.fromImage(image)
+                            painter.drawPixmap(symbol_rect, pixmap)
                             return
                     except Exception as e:
-                        print(f"drawPreviewIcon failed: {e}")
+                        print(f"asImage failed: {e}")
                 
-                # Method 2: Try color from symbol
+                # Method 2: Try exportImage
+                if hasattr(symbol, 'exportImage'):
+                    try:
+                        size = symbol_rect.size()
+                        image = symbol.exportImage(size.width(), size.height())
+                        if image and not image.isNull():
+                            pixmap = QPixmap.fromImage(image)
+                            painter.drawPixmap(symbol_rect, pixmap)
+                            return
+                    except Exception as e:
+                        print(f"exportImage failed: {e}")
+                
+                # Method 3: Custom rendering based on geometry type
+                pixmap = QPixmap(symbol_rect.width(), symbol_rect.height())
+                pixmap.fill(Qt.transparent)
+                
+                symbol_painter = QPainter()
+                if symbol_painter.begin(pixmap):
+                    try:
+                        symbol_painter.setRenderHint(QPainter.Antialiasing)
+                        
+                        # Get symbol color
+                        symbol_color_to_use = symbol.color() if hasattr(symbol, 'color') else symbol_color
+                        
+                        # Different rendering based on geometry type
+                        if geometry_type == 'point':
+                            # Draw circle for points
+                            symbol_painter.setBrush(symbol_color_to_use)
+                            symbol_painter.setPen(QPen(symbol_color_to_use.darker(120), 1))
+                            center = QPointF(symbol_rect.width()/2, symbol_rect.height()/2)
+                            radius = min(symbol_rect.width(), symbol_rect.height()) // 3
+                            symbol_painter.drawEllipse(center, radius, radius)
+                            
+                        elif geometry_type == 'line':
+                            # Draw line
+                            pen = QPen(symbol_color_to_use, 2)
+                            symbol_painter.setPen(pen)
+                            symbol_painter.drawLine(2, symbol_rect.height()//2, 
+                                                  symbol_rect.width()-2, symbol_rect.height()//2)
+                                                  
+                        elif geometry_type == 'polygon':
+                            # Draw filled rectangle for polygons
+                            symbol_painter.setBrush(symbol_color_to_use)
+                            symbol_painter.setPen(QPen(symbol_color_to_use.darker(120), 1))
+                            symbol_painter.drawRect(2, 2, symbol_rect.width()-4, symbol_rect.height()-4)
+                            
+                        else:
+                            # Default: filled rectangle
+                            symbol_painter.fillRect(0, 0, symbol_rect.width(), symbol_rect.height(), symbol_color_to_use)
+                            
+                    except Exception as render_error:
+                        print(f"Custom rendering failed: {render_error}")
+                        # Emergency fallback within the painter context
+                        color = symbol.color() if hasattr(symbol, 'color') else symbol_color or QColor('lightgray')
+                        symbol_painter.fillRect(0, 0, symbol_rect.width(), symbol_rect.height(), color)
+                    finally:
+                        symbol_painter.end()
+                        
+                    # Draw the rendered symbol
+                    painter.drawPixmap(symbol_rect, pixmap)
+                    return
+                
+                # Method 4: Try direct color rendering
                 if hasattr(symbol, 'color'):
                     try:
                         color = symbol.color()
                         if color.isValid():
-                            painter.fillRect(symbol_rect, color)
+                            # Apply geometry-specific rendering even for fallback
+                            if geometry_type == 'point':
+                                painter.setBrush(color)
+                                painter.setPen(QPen(color.darker(120), 1))
+                                center = QPointF(symbol_rect.center())
+                                radius = min(symbol_rect.width(), symbol_rect.height()) // 3
+                                painter.drawEllipse(center, radius, radius)
+                            elif geometry_type == 'line':
+                                pen = QPen(color, 2)
+                                painter.setPen(pen)
+                                painter.drawLine(symbol_rect.left()+2, symbol_rect.center().y(), 
+                                               symbol_rect.right()-2, symbol_rect.center().y())
+                            else:
+                                painter.fillRect(symbol_rect, color)
                             return
-                    except Exception as e:
-                        print(f"symbol.color() failed: {e}")
+                    except Exception:
+                        pass
             
-            # Method 3: Use provided symbol_color
+            # Method 5: Use provided symbol_color with geometry awareness
             if symbol_color and symbol_color.isValid():
-                painter.fillRect(symbol_rect, symbol_color)
+                if geometry_type == 'point':
+                    painter.setBrush(symbol_color)
+                    painter.setPen(QPen(symbol_color.darker(120), 1))
+                    center = QPointF(symbol_rect.center())
+                    radius = min(symbol_rect.width(), symbol_rect.height()) // 3
+                    painter.drawEllipse(center, radius, radius)
+                elif geometry_type == 'line':
+                    pen = QPen(symbol_color, 2)
+                    painter.setPen(pen)
+                    painter.drawLine(symbol_rect.left()+2, symbol_rect.center().y(), 
+                                   symbol_rect.right()-2, symbol_rect.center().y())
+                else:
+                    painter.fillRect(symbol_rect, symbol_color)
                 return
                 
-            # Method 4: Default colors by layer type
+            # Method 6: Default colors by layer type and geometry
             if layer_type == 'raster':
                 painter.fillRect(symbol_rect, QColor(200, 200, 200))  # Light gray for rasters
-            elif layer_type == 'vector':
-                painter.fillRect(symbol_rect, QColor(100, 150, 200))  # Light blue for vectors
             else:
-                painter.fillRect(symbol_rect, QColor(180, 180, 180))  # Gray for unknown
+                # Default colors based on geometry type
+                if geometry_type == 'point':
+                    default_color = QColor(255, 100, 100)  # Red for points
+                    painter.setBrush(default_color)
+                    painter.setPen(QPen(default_color.darker(120), 1))
+                    center = QPointF(symbol_rect.center())
+                    radius = min(symbol_rect.width(), symbol_rect.height()) // 3
+                    painter.drawEllipse(center, radius, radius)
+                elif geometry_type == 'line':
+                    default_color = QColor(100, 255, 100)  # Green for lines
+                    pen = QPen(default_color, 2)
+                    painter.setPen(pen)
+                    painter.drawLine(symbol_rect.left()+2, symbol_rect.center().y(), 
+                                   symbol_rect.right()-2, symbol_rect.center().y())
+                elif geometry_type == 'polygon':
+                    default_color = QColor(100, 100, 255)  # Blue for polygons
+                    painter.fillRect(symbol_rect, default_color)
+                else:
+                    painter.fillRect(symbol_rect, QColor(180, 180, 180))  # Gray for unknown
                 
         except Exception as e:
             print(f"Error in draw_symbol_safe: {e}")
@@ -338,7 +446,7 @@ class CanvasLegendDialog(QDialog):
         
     def setupUi(self):
         """Set up the user interface"""
-        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 03'))
+        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 04'))
         self.setMinimumSize(400, 600)
         
         layout = QVBoxLayout(self)
@@ -736,88 +844,119 @@ class CanvasLegendDialog(QDialog):
                     'label': layer.name(),
                     'symbol': None,
                     'color': QColor('lightgray'),  # Default color for rasters
-                    'layer_type': 'raster'
+                    'layer_type': 'raster',
+                    'geometry_type': 'raster'
                 })
                 return symbols
             
             # Handle vector layers
-            if not hasattr(layer, 'renderer') or not layer.renderer():
-                print(f"Layer {layer.name()} has no renderer")
-                symbols.append({
-                    'label': layer.name(),
-                    'symbol': None,
-                    'color': QColor('lightblue'),
-                    'layer_type': 'vector_no_renderer'
-                })
-                return symbols
+            if layer.type() == 1:  # QgsMapLayer.VectorLayer
+                # Get geometry type
+                geometry_type = 'unknown'
+                if hasattr(layer, 'geometryType'):
+                    geom_type = layer.geometryType()
+                    if geom_type == 0:  # Point
+                        geometry_type = 'point'
+                    elif geom_type == 1:  # Line
+                        geometry_type = 'line'
+                    elif geom_type == 2:  # Polygon
+                        geometry_type = 'polygon'
                 
-            renderer = layer.renderer()
-            renderer_type = renderer.type()
-            print(f"Renderer type: {renderer_type}")
-            
-            if renderer_type == 'singleSymbol':
-                # Single symbol renderer
-                symbol = renderer.symbol()
-                if symbol:
-                    symbols.append({
-                        'label': layer.name(),
-                        'symbol': symbol,
-                        'color': symbol.color() if hasattr(symbol, 'color') else QColor('blue'),
-                        'layer_type': 'vector'
-                    })
-                    
-            elif renderer_type == 'categorizedSymbol':
-                # Categorized renderer
-                for category in renderer.categories():
-                    if category.renderState():  # Only include enabled categories
-                        label = category.label() if category.label() else str(category.value())
-                        symbols.append({
-                            'label': label,
-                            'symbol': category.symbol(),
-                            'color': category.symbol().color() if hasattr(category.symbol(), 'color') else QColor('green'),
-                            'layer_type': 'vector'
-                        })
-                        
-            elif renderer_type == 'graduatedSymbol':
-                # Graduated renderer
-                for range_item in renderer.ranges():
-                    symbols.append({
-                        'label': range_item.label(),
-                        'symbol': range_item.symbol(),
-                        'color': range_item.symbol().color() if hasattr(range_item.symbol(), 'color') else QColor('orange'),
-                        'layer_type': 'vector'
-                    })
-                    
-            elif renderer_type == 'RuleRenderer':
-                # Rule-based renderer
-                root_rule = renderer.rootRule()
-                if root_rule:
-                    for rule in root_rule.children():
-                        if rule.isActive() and rule.symbol():
-                            label = rule.label() or rule.filterExpression() or 'Rule'
-                            symbols.append({
-                                'label': label,
-                                'symbol': rule.symbol(),
-                                'color': rule.symbol().color() if hasattr(rule.symbol(), 'color') else QColor('purple'),
-                                'layer_type': 'vector'
-                            })
-            else:
-                # Fallback for other renderer types
-                symbol = getattr(renderer, 'symbol', lambda: None)()
-                if symbol:
-                    symbols.append({
-                        'label': layer.name(),
-                        'symbol': symbol,
-                        'color': symbol.color() if hasattr(symbol, 'color') else QColor('red'),
-                        'layer_type': 'vector'
-                    })
-                else:
+                print(f"Vector layer geometry type: {geometry_type}")
+                
+                if not hasattr(layer, 'renderer') or not layer.renderer():
+                    print(f"Layer {layer.name()} has no renderer")
                     symbols.append({
                         'label': layer.name(),
                         'symbol': None,
-                        'color': QColor('gray'),
-                        'layer_type': 'vector'
+                        'color': QColor('lightblue'),
+                        'layer_type': 'vector_no_renderer',
+                        'geometry_type': geometry_type
                     })
+                    return symbols
+                    
+                renderer = layer.renderer()
+                renderer_type = renderer.type()
+                print(f"Renderer type: {renderer_type}")
+                
+                if renderer_type == 'singleSymbol':
+                    # Single symbol renderer
+                    symbol = renderer.symbol()
+                    if symbol:
+                        symbols.append({
+                            'label': layer.name(),
+                            'symbol': symbol,
+                            'color': symbol.color() if hasattr(symbol, 'color') else QColor('blue'),
+                            'layer_type': 'vector',
+                            'geometry_type': geometry_type
+                        })
+                        
+                elif renderer_type == 'categorizedSymbol':
+                    # Categorized renderer
+                    for category in renderer.categories():
+                        if category.renderState():  # Only include enabled categories
+                            label = category.label() if category.label() else str(category.value())
+                            symbols.append({
+                                'label': label,
+                                'symbol': category.symbol(),
+                                'color': category.symbol().color() if hasattr(category.symbol(), 'color') else QColor('green'),
+                                'layer_type': 'vector',
+                                'geometry_type': geometry_type
+                            })
+                            
+                elif renderer_type == 'graduatedSymbol':
+                    # Graduated renderer
+                    for range_item in renderer.ranges():
+                        symbols.append({
+                            'label': range_item.label(),
+                            'symbol': range_item.symbol(),
+                            'color': range_item.symbol().color() if hasattr(range_item.symbol(), 'color') else QColor('orange'),
+                            'layer_type': 'vector',
+                            'geometry_type': geometry_type
+                        })
+                        
+                elif renderer_type == 'RuleRenderer':
+                    # Rule-based renderer
+                    root_rule = renderer.rootRule()
+                    if root_rule:
+                        for rule in root_rule.children():
+                            if rule.isActive() and rule.symbol():
+                                label = rule.label() or rule.filterExpression() or 'Rule'
+                                symbols.append({
+                                    'label': label,
+                                    'symbol': rule.symbol(),
+                                    'color': rule.symbol().color() if hasattr(rule.symbol(), 'color') else QColor('purple'),
+                                    'layer_type': 'vector',
+                                    'geometry_type': geometry_type
+                                })
+                else:
+                    # Fallback for other renderer types
+                    symbol = getattr(renderer, 'symbol', lambda: None)()
+                    if symbol:
+                        symbols.append({
+                            'label': layer.name(),
+                            'symbol': symbol,
+                            'color': symbol.color() if hasattr(symbol, 'color') else QColor('red'),
+                            'layer_type': 'vector',
+                            'geometry_type': geometry_type
+                        })
+                    else:
+                        symbols.append({
+                            'label': layer.name(),
+                            'symbol': None,
+                            'color': QColor('gray'),
+                            'layer_type': 'vector',
+                            'geometry_type': geometry_type
+                        })
+            else:
+                # Other layer types (mesh, plugin, etc.)
+                symbols.append({
+                    'label': layer.name(),
+                    'symbol': None,
+                    'color': QColor('lightcyan'),
+                    'layer_type': 'other',
+                    'geometry_type': 'other'
+                })
                         
         except Exception as e:
             print(f"Error getting symbols for layer {layer.name()}: {e}")
@@ -826,7 +965,8 @@ class CanvasLegendDialog(QDialog):
                 'label': layer.name(),
                 'symbol': None,
                 'color': QColor('lightblue'),
-                'layer_type': 'unknown'
+                'layer_type': 'unknown',
+                'geometry_type': 'unknown'
             })
         
         print(f"Found {len(symbols)} symbols for layer {layer.name()}")

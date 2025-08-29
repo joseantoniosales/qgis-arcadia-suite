@@ -186,13 +186,32 @@ class CanvasLegendOverlay(QWidget):
         if getattr(self, '_destroyed', False):
             self.debug_print("ABORT: Overlay marked as destroyed")
             return
-            
-        # BETA 20: Use simplified cache-based painting if available
-        if self._beta20_enabled and self._symbol_cache:
-            self._paint_with_cache_beta20(event)
+        
+        # EMERGENCY SAFETY: Check if we should even attempt painting
+        if getattr(self, '_emergency_disable_painting', False):
+            self.debug_print("EMERGENCY: Painting completely disabled")
             return
             
+        # BETA 20: Check for cache-based system availability
+        beta20_enabled = getattr(self, '_beta20_enabled', False)
+        symbol_cache = getattr(self, '_symbol_cache', None)
+        
+        self.debug_print(f"PAINT: Beta20={beta20_enabled}, Cache={symbol_cache is not None}")
+        
+        # BETA 20: Use simplified cache-based painting if available
+        if beta20_enabled and symbol_cache is not None:
+            try:
+                self.debug_print("USING BETA 20 CACHE-BASED SYSTEM")
+                self._paint_with_cache_beta20(event)
+                return
+            except Exception as e:
+                self.debug_print(f"BETA 20 FAILED: {e}")
+                # Force emergency mode
+                self._emergency_disable_painting = True
+                return
+            
         # Fallback to legacy system with all protections
+        self.debug_print("USING LEGACY SYSTEM")
         self._paint_legacy_system(event)
     
     def _paint_with_cache_beta20(self, event):
@@ -200,12 +219,18 @@ class CanvasLegendOverlay(QWidget):
         if getattr(self, '_destroyed', False):
             return
             
-        # Prevent recursive painting
-        if self._painting or self._resizing:
+        # CRITICAL: Prevent recursive painting
+        if getattr(self, '_painting', False) or getattr(self, '_resizing', False):
             self.debug_print("BETA 20: Skipping paint - already painting or resizing")
             return
             
+        # EMERGENCY: Check for emergency disable
+        if getattr(self, '_emergency_disable_painting', False):
+            self._paint_emergency_mode()
+            return
+            
         if not self.legend_items:
+            self.debug_print("BETA 20: No legend items to paint")
             return
             
         # Set painting flag
@@ -213,6 +238,8 @@ class CanvasLegendOverlay(QWidget):
         painter = QPainter()
         
         try:
+            self.debug_print("BETA 20: Starting cache-based painting")
+            
             if not painter.begin(self):
                 self.debug_print("BETA 20: Failed to begin painting")
                 return
@@ -227,13 +254,42 @@ class CanvasLegendOverlay(QWidget):
             
             for item in self.legend_items:
                 y_offset = self._draw_legend_item_beta20(painter, item, y_offset)
+            
+            self.debug_print("BETA 20: Cache-based painting completed successfully")
                 
         except Exception as e:
             self.debug_print(f"BETA 20: Error in cache-based painting: {e}")
+            import traceback
+            traceback.print_exc()
+            # Force emergency mode for future paints
+            self._emergency_disable_painting = True
         finally:
             if painter.isActive():
                 painter.end()
             self._painting = False
+    
+    def _paint_emergency_mode(self):
+        """Ultra-safe emergency painting mode"""
+        try:
+            self.debug_print("EMERGENCY MODE: Using crash-proof rendering")
+            painter = QPainter()
+            if painter.begin(self):
+                # Ultra-simple rendering that should never crash
+                painter.fillRect(self.rect(), QColor(240, 240, 240, 200))  # Light gray background
+                painter.setPen(QColor(100, 100, 100))
+                painter.drawRect(self.rect().adjusted(1, 1, -2, -2))
+                
+                # Simple text
+                painter.setPen(QColor(0, 0, 0))
+                painter.setFont(QFont('Arial', 10))
+                painter.drawText(10, 20, "Legend (Safe Mode)")
+                painter.drawText(10, 40, "Restart QGIS to restore")
+                painter.drawText(10, 60, "full functionality")
+                
+                painter.end()
+        except Exception as e:
+            self.debug_print(f"EMERGENCY MODE: Even emergency painting failed: {e}")
+            # At this point, just give up gracefully
     
     def _paint_legacy_system(self, event):
         """Legacy painting system with all Beta 19 protections"""
@@ -871,11 +927,11 @@ class CanvasLegendDockWidget(QDockWidget):
         try:
             if BETA20_MODULES_AVAILABLE:
                 # Initialize symbol cache manager
-                self.symbol_cache = SymbolCacheManager(max_cache_size=1000)
-                self.symbol_cache.cache_updated.connect(self._on_symbol_cache_updated)
+                self._symbol_cache = SymbolCacheManager(max_cache_size=1000)
+                self._symbol_cache.cache_updated.connect(self._on_symbol_cache_updated)
                 
                 # Initialize symbol data extractor
-                self.symbol_extractor = SymbolDataExtractor(debug_mode=self.debug_mode)
+                self._symbol_data_extractor = SymbolDataExtractor(debug_mode=self.debug_mode)
                 
                 # Beta 20 flags
                 self._beta20_enabled = True
@@ -883,18 +939,22 @@ class CanvasLegendDockWidget(QDockWidget):
                 self._last_extraction_time = 0
                 
                 self.debug_print("BETA 20: New architecture components initialized successfully")
+                self.debug_print(f"BETA 20: Cache manager: {self._symbol_cache}")
+                self.debug_print(f"BETA 20: Data extractor: {self._symbol_data_extractor}")
             else:
                 # Fallback to legacy system
                 self._beta20_enabled = False
-                self.symbol_cache = None
-                self.symbol_extractor = None
+                self._symbol_cache = None
+                self._symbol_data_extractor = None
                 self.debug_print("BETA 20: Fallback to legacy system - new modules not available")
                 
         except Exception as e:
             self._beta20_enabled = False
-            self.symbol_cache = None
-            self.symbol_extractor = None
+            self._symbol_cache = None
+            self._symbol_data_extractor = None
             self.debug_print(f"BETA 20: Failed to initialize new components: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _on_symbol_cache_updated(self, cache_key: str):
         """Callback when symbol cache is updated"""

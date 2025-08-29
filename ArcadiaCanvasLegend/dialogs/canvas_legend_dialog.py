@@ -4,7 +4,7 @@ Handles all user interface interactions for legend configuration
 """
 
 from qgis.PyQt.QtCore import Qt, pyqtSignal, QTimer, QRect, QPointF, QSize
-from qgis.PyQt.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
+from qgis.PyQt.QtWidgets import (QDockWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
                                 QLabel, QPushButton, QComboBox, QSpinBox, 
                                 QCheckBox, QGroupBox, QTabWidget, QWidget, 
                                 QSlider, QFrame, QMessageBox, QApplication, 
@@ -551,21 +551,32 @@ class CanvasLegendOverlay(QWidget):
         print(f"    -> Final method used: {method_used}")
 
 
-class CanvasLegendDialog(QDialog):
-    """Main dialog for canvas legend configuration"""
+class CanvasLegendDockWidget(QDockWidget):
+    """Main dock widget for canvas legend configuration"""
     
     def __init__(self, iface, parent=None):
-        super().__init__(parent)
+        super().__init__("Arcadia Canvas Legend", parent)
         self.iface = iface
         self.canvas = iface.mapCanvas()
         self.legend_overlay = None
         self.auto_update_enabled = True
         self.debug_mode = False  # Debug mode disabled by default
         
+        # Create central widget
+        self.central_widget = QWidget()
+        self.setWidget(self.central_widget)
+        
+        # Configure dock widget
+        self.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.setFeatures(QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable | QDockWidget.DockWidgetClosable)
+        
         self.setupUi()
         self.load_settings()
         self.connect_signals()
         self.connect_layer_signals()
+        
+        # Connect close event to cleanup
+        self.closeEvent = self.custom_close_event
         
     def debug_print(self, message):
         """Print debug message only if debug mode is enabled"""
@@ -628,14 +639,15 @@ class CanvasLegendDialog(QDialog):
         
     def setupUi(self):
         """Set up the user interface"""
-        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 12'))
-        self.setMinimumSize(400, 600)
+        self.setWindowTitle('Arcadia Canvas Legend - Beta 13 (Dock)')
         
-        layout = QVBoxLayout(self)
+        # Main layout for central widget
+        main_layout = QVBoxLayout(self.central_widget)
+        main_layout.setContentsMargins(5, 5, 5, 5)  # Smaller margins for dock
         
-        # Create tab widget
+        # Tab widget
         self.tab_widget = QTabWidget()
-        layout.addWidget(self.tab_widget)
+        main_layout.addWidget(self.tab_widget)
         
         # Position and Size Tab
         self.setup_position_tab()
@@ -649,23 +661,40 @@ class CanvasLegendDialog(QDialog):
         # Export Tab
         self.setup_export_tab()
         
-        # Buttons
+        # Control buttons (more compact for dock)
         button_layout = QHBoxLayout()
         
         self.preview_btn = QPushButton(self.tr('Preview'))
         self.apply_btn = QPushButton(self.tr('Apply'))
-        self.hide_legend_btn = QPushButton(self.tr('Hide Legend'))
-        self.export_btn = QPushButton(self.tr('Export'))
-        self.close_btn = QPushButton(self.tr('Close'))
+        self.hide_legend_btn = QPushButton(self.tr('Hide'))
+        
+        # Make buttons smaller for dock
+        for btn in [self.preview_btn, self.apply_btn, self.hide_legend_btn]:
+            btn.setMaximumHeight(30)
         
         button_layout.addWidget(self.preview_btn)
         button_layout.addWidget(self.apply_btn)
         button_layout.addWidget(self.hide_legend_btn)
-        button_layout.addWidget(self.export_btn)
-        button_layout.addStretch()
-        button_layout.addWidget(self.close_btn)
         
-        layout.addLayout(button_layout)
+        main_layout.addLayout(button_layout)
+        
+        # Set minimum width for dock
+        self.setMinimumWidth(280)
+        
+    def custom_close_event(self, event):
+        """Custom close event to cleanup overlay"""
+        self.cleanup_overlay()
+        event.accept()
+        
+    def cleanup_overlay(self):
+        """Safely cleanup overlay"""
+        try:
+            if self.legend_overlay:
+                self.legend_overlay.hide()
+                self.legend_overlay.deleteLater()
+                self.legend_overlay = None
+        except Exception as e:
+            self.debug_print(f"Error cleaning up overlay: {e}")
         
     def setup_position_tab(self):
         """Set up position and size configuration tab"""
@@ -867,8 +896,6 @@ class CanvasLegendDialog(QDialog):
         self.preview_btn.clicked.connect(self.preview_legend)
         self.apply_btn.clicked.connect(self.apply_legend)
         self.hide_legend_btn.clicked.connect(self.hide_legend)
-        self.export_btn.clicked.connect(self.export_current_view)
-        self.close_btn.clicked.connect(self.close_dialog_only)
         
         self.export_clipboard_btn.clicked.connect(self.export_to_clipboard)
         self.export_png_btn.clicked.connect(self.export_to_png)
@@ -1589,17 +1616,14 @@ class CanvasLegendDialog(QDialog):
         self.debug_print(f"Debug mode {'enabled' if enabled else 'disabled'}")
         
     def hide_legend(self):
-        """Hide the legend overlay without closing the dialog"""
+        """Hide the legend overlay"""
         try:
             if self.legend_overlay:
                 self.legend_overlay.hide()
+                self.save_settings()  # Save settings when hiding
         except Exception as e:
             QMessageBox.warning(self, self.tr('Warning'), 
                               self.tr('Error hiding legend: {}').format(str(e)))
-            
-    def close_dialog_only(self):
-        """Close only the dialog, keep legend visible if active"""
-        self.hide()
         
     def capture_canvas_with_legend(self):
         """Capture canvas with legend overlay as pixmap"""

@@ -9,7 +9,7 @@ from qgis.PyQt.QtWidgets import QAction, QMenu
 from qgis.core import QgsProcessingAlgorithm, QgsApplication
 import os.path
 
-from .dialogs.canvas_legend_dialog import CanvasLegendDialog
+from .dialogs.canvas_legend_dialog import CanvasLegendDockWidget
 from .tools.canvas_legend_processor import CanvasLegendProvider
 from .utils import get_settings_file_path
 
@@ -48,7 +48,7 @@ class ArcadiaCanvasLegendPlugin:
         self.menu = self.tr('&Arcadia Suite')
         
         # Keep dialog references to prevent garbage collection
-        self.canvas_legend_dialog = None
+        self.canvas_legend_dock = None
         
         # Processing provider
         self.provider = None
@@ -133,27 +133,28 @@ class ArcadiaCanvasLegendPlugin:
                 action)
             self.iface.removeToolBarIcon(action)
             
-        # Clean up dialog and legend overlay
-        if self.canvas_legend_dialog:
-            self.canvas_legend_dialog.cleanup()
-            self.canvas_legend_dialog.close()
-            self.canvas_legend_dialog = None
+        # Clean up dock widget and legend overlay
+        if self.canvas_legend_dock:
+            self.canvas_legend_dock.cleanup_overlay()
+            self.iface.removeDockWidget(self.canvas_legend_dock)
+            self.canvas_legend_dock = None
 
     def run(self):
         """Run method that performs all the real work"""
         try:
-            # Create dialog if it doesn't exist
-            if not self.canvas_legend_dialog:
-                self.canvas_legend_dialog = CanvasLegendDialog(self.iface)
+            # Create dock widget if it doesn't exist
+            if not self.canvas_legend_dock:
+                self.canvas_legend_dock = CanvasLegendDockWidget(self.iface)
+                self.iface.addDockWidget(Qt.RightDockWidgetArea, self.canvas_legend_dock)
                 
-            # Show the dialog
-            self.canvas_legend_dialog.show()
+            # Show the dock widget
+            self.canvas_legend_dock.show()
             
         except Exception as e:
             from qgis.PyQt.QtWidgets import QMessageBox
             QMessageBox.critical(
                 self.iface.mainWindow(),
                 self.tr('Error'),
-                self.tr('Error opening Canvas Legend dialog: {}').format(str(e))
+                self.tr('Error opening Canvas Legend dock: {}').format(str(e))
             )
             print(f"Error in ArcadiaCanvasLegend.run(): {e}")

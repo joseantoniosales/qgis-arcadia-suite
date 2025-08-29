@@ -24,9 +24,11 @@ class CanvasLegendOverlay(QWidget):
     """Widget for displaying legend overlay on canvas"""
     
     def __init__(self, canvas, parent=None):
-        super().__init__(parent)
+        # Set canvas as parent to limit overlay to canvas area only
+        super().__init__(canvas)  # Canvas as parent instead of generic parent
         self.canvas = canvas
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        # Removed WindowStaysOnTopHint to prevent overlay on composer/other windows
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.legend_items = []
         self.settings = {}
@@ -502,7 +504,7 @@ class CanvasLegendDialog(QDialog):
         
     def setupUi(self):
         """Set up the user interface"""
-        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 07'))
+        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 08'))
         self.setMinimumSize(400, 600)
         
         layout = QVBoxLayout(self)
@@ -697,6 +699,19 @@ class CanvasLegendDialog(QDialog):
         layers_layout.addWidget(self.debug_mode_check)
         
         layout.addWidget(layers_group)
+        
+        # Raster styling group
+        raster_group = QGroupBox(self.tr('Raster Styling'))
+        raster_layout = QGridLayout(raster_group)
+        
+        raster_layout.addWidget(QLabel(self.tr('Pseudocolor decimals:')), 0, 0)
+        self.pseudocolor_decimals_spin = QSpinBox()
+        self.pseudocolor_decimals_spin.setRange(0, 6)
+        self.pseudocolor_decimals_spin.setValue(2)
+        self.pseudocolor_decimals_spin.setToolTip(self.tr('Number of decimal places for pseudocolor raster values'))
+        raster_layout.addWidget(self.pseudocolor_decimals_spin, 0, 1)
+        
+        layout.addWidget(raster_group)
         layout.addStretch()
         
         self.tab_widget.addTab(tab, self.tr('Content'))
@@ -746,6 +761,11 @@ class CanvasLegendDialog(QDialog):
             position = get_arcadia_setting('CANVAS_LEGEND', 'default_position', 'bottom_right')
             self.position_combo.setCurrentText(position.replace('_', ' ').title())
             
+            # Load pseudocolor decimals setting
+            decimals = get_arcadia_setting('CANVAS_LEGEND', 'pseudocolor_decimals', 2)
+            if hasattr(self, 'pseudocolor_decimals_spin'):
+                self.pseudocolor_decimals_spin.setValue(int(decimals))
+            
         except Exception as e:
             self.debug_print(f"Error loading settings: {e}")
             
@@ -754,6 +774,10 @@ class CanvasLegendDialog(QDialog):
         try:
             position = self.position_combo.currentText().lower().replace(' ', '_')
             set_arcadia_setting('CANVAS_LEGEND', 'default_position', position)
+            
+            # Save pseudocolor decimals setting
+            if hasattr(self, 'pseudocolor_decimals_spin'):
+                set_arcadia_setting('CANVAS_LEGEND', 'pseudocolor_decimals', self.pseudocolor_decimals_spin.value())
                               
         except Exception as e:
             self.debug_print(f"Error saving settings: {e}")
@@ -811,7 +835,8 @@ class CanvasLegendDialog(QDialog):
             'frame_width': self.frame_width_spin.value(),
             'show_title': self.show_title_check.isChecked(),
             'title_text': self.title_text.text(),
-            'debug_mode': self.debug_mode
+            'debug_mode': self.debug_mode,
+            'pseudocolor_decimals': self.pseudocolor_decimals_spin.value()
         }
         
     def get_legend_items(self):
@@ -938,10 +963,21 @@ class CanvasLegendDialog(QDialog):
                             if hasattr(ramp_function, 'colorRampItemList'):
                                 color_items = ramp_function.colorRampItemList()
                                 if color_items:
+                                    # Get decimal places from UI control
+                                    decimals = self.pseudocolor_decimals_spin.value() if hasattr(self, 'pseudocolor_decimals_spin') else 2
+                                    
                                     # Create multiple symbols for the color ramp
                                     for i, item in enumerate(color_items[:5]):  # Max 5 colors to avoid overcrowding
+                                        # Format value with specified decimal places
+                                        if hasattr(item, 'value'):
+                                            value_text = f"{item.value:.{decimals}f}"
+                                        else:
+                                            value_text = f"Color {i+1}"
+                                            
+                                        label = f"{item.label}" if hasattr(item, 'label') and item.label else f"Value {value_text}"
+                                        
                                         symbols.append({
-                                            'label': f"{item.label}" if hasattr(item, 'label') and item.label else f"Value {item.value:.2f}" if hasattr(item, 'value') else f"Color {i+1}",
+                                            'label': label,
                                             'symbol': None,
                                             'color': item.color if hasattr(item, 'color') else QColor('gray'),
                                             'layer_type': 'raster_pseudocolor',

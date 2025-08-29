@@ -1,5 +1,3 @@
-# Archivo de metadatos del complemento, debe estar codificado en UTF-8
-
 [general]
 name=ArcadiaWFSDownloader
 description=Suite de herramientas para descargar, recortar, filtrar y gestionar datos desde servicios WFS
@@ -17,16 +15,5 @@ experimental=False
 deprecated=False
 hasProcessingProvider=True
 server=False
-icon=icon_wfs.svg
-changelog=
-Version 1.1.0 (2025-08-27)
-- Nueva opción de recorte: GEOMETRÍA sin Buffer
-- Organización mejorada de directorios (config/, cache/, styles/)
-- Creación automática de directorios necesarios
-- Documentación completa del módulo de descarga
-- Gestión mejorada de configuraciones compartidas
-Version 1.0.0 (2024-02-27)
-- Primera versión pública
-- Soporte para descarga y gestión de fuentes WFS
-- Herramientas de recorte y filtrado
-- Soporte para caché y estilos compartidos
+icon=icono_wfs.svg
+changelog=Version 1.1.0 (2025-08-27): Nueva opción de recorte: GEOMETRÍA sin Buffer; Organización mejorada de directorios (config/, cache/, styles/); Creación automática de directorios necesarios; Documentación completa del módulo de descarga; Gestión mejorada de configuraciones compartidas. Version 1.0.0 (2024-02-27): Primera versión pública; Soporte para descarga y gestión de fuentes WFS; Herramientas de recorte y filtrado; Soporte para caché y estilos compartidos.

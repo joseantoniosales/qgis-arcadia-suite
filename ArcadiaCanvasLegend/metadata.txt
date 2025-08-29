@@ -2,7 +2,7 @@
 name=ArcadiaCanvasLegend
 qgisMinimumVersion=3.22
 description=Canvas Legend Overlay - Part of Arcadia Suite. Display customizable legends overlaid on the QGIS canvas with full style control and export capabilities.
-version=1.0.17
+version=1.0.18
 author=Arcadia Suite Development Team
 email=info@arcadiasuite.com
 about=This plugin allows users to display and configure map legends overlay on the QGIS canvas. Features include position and style configuration, text formatting options, background and frame customization, canvas-to-composition conversion, and export to clipboard or PNG. Part of the comprehensive Arcadia Suite for QGIS.
@@ -16,11 +16,10 @@ icon=icon.svg
 experimental=False
 deprecated=False
 server=False
-version=1.0.17
-changelog=Beta 17: Protección avanzada para capas raster
-    - Implementa protección de 6 niveles para símbolos raster pseudocolor
-    - Verifica validez de capa padre antes de renderizar símbolos
-    - Detecta símbolos sin capas de símbolo (vacíos)
-    - Timeout automático para validación de símbolos
-    - Delay extendido de limpieza para raster (4 segundos)
-    - Manejo defensivo de todas las propiedades de símbolo raster
+changelog=Beta 18: Protección específica para carga de estilos QML
+    - Detecta carga de archivos de estilo .qml
+    - Implementa delay de seguridad de 5 segundos tras cambios de simbología
+    - Oculta overlay temporalmente durante carga de estilos vectoriales
+    - Verifica estabilidad de capas antes de recrear overlay
+    - Protección específica en paintEvent para evitar crashes durante carga de estilos
+    - Manejo especializado para simbologías categorizadas complejas

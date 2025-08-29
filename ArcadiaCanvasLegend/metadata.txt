@@ -16,4 +16,11 @@ icon=icon.svg
 experimental=False
 deprecated=False
 server=False
-changelog=Version 1.0.17 (Beta 17) - RASTER PROTECTION: Comprehensive safety for pseudocolor raster processing, multi-level error handling for shader/color ramp access, extended cleanup delays for raster changes, raster-specific renderer change detection with enhanced safety protocols.
+version=1.0.18
+changelog=Beta 18: Protección específica para carga de estilos QML
+    - Detecta carga de archivos de estilo .qml
+    - Implementa delay de seguridad de 5 segundos tras cambios de simbología
+    - Oculta overlay temporalmente durante carga de estilos vectoriales
+    - Verifica estabilidad de capas antes de recrear overlay
+    - Protección específica en paintEvent para evitar crashes durante carga de estilos
+    - Manejo especializado para simbologías categorizadas complejas

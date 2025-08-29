@@ -172,6 +172,15 @@ class CanvasLegendOverlay(QWidget):
             self.debug_print("ABORT: Overlay marked as destroyed")
             return
             
+        # BETA 18: Check for style loading protection
+        dialog = self.parent()
+        while dialog and not hasattr(dialog, '_style_loading_detected'):
+            dialog = dialog.parent()
+        
+        if dialog and getattr(dialog, '_style_loading_detected', False):
+            self.debug_print("BETA 18: ABORT: Style loading detected - skipping paint to prevent crash")
+            return
+            
         # Check if parent canvas still exists and is valid
         if not self.canvas or not hasattr(self.canvas, 'isVisible'):
             self.debug_print("ABORT: Canvas invalid or missing")
@@ -625,6 +634,12 @@ class CanvasLegendDockWidget(QDockWidget):
         self._applying_legend = False  # Prevent recreation loops
         self._last_apply_time = 0  # Throttle rapid applies
         
+        # BETA 18: Protección específica para carga de estilos
+        self._style_loading_detected = False
+        self._last_style_change_time = 0
+        self._style_safety_delay = 5000  # 5 segundos de espera tras cambios de estilo
+        self._properties_dialog_open = False
+        
         # Create central widget
         self.central_widget = QWidget()
         self.setWidget(self.central_widget)
@@ -681,17 +696,48 @@ class CanvasLegendDockWidget(QDockWidget):
             self.debug_print(f"Error connecting existing layer signals: {e}")
             
     def on_renderer_changed(self):
-        """Handle renderer/symbology changes - FORCE OVERLAY RECREATION WITH RASTER PROTECTION"""
+        """Handle renderer/symbology changes - BETA 18: PROTECCIÓN PARA CARGA DE ESTILOS"""
         try:
-            self.debug_print("Renderer changed detected - forcing overlay recreation")
+            # BETA 18: Detectar carga de estilos y activar protección extendida
+            from qgis.PyQt.QtCore import QTimer
+            current_time = QTimer()
+            current_ms = current_time.remainingTime() if hasattr(current_time, 'remainingTime') else 0
+            
+            self.debug_print("BETA 18: Renderer changed detected - checking for style loading")
+            
+            # Marcar que se detectó cambio de estilo
+            self._style_loading_detected = True
+            self._last_style_change_time = current_ms
             
             # CRITICAL: Check if this is a raster layer change
             sender_layer = self.sender()
             is_raster_change = False
+            is_vector_style_change = False
+            
             if sender_layer and hasattr(sender_layer, '__class__'):
-                if 'Raster' in sender_layer.__class__.__name__:
+                layer_class_name = sender_layer.__class__.__name__
+                if 'Raster' in layer_class_name:
                     is_raster_change = True
-                    self.debug_print("RASTER renderer change detected - using extra safety")
+                    self.debug_print("BETA 18: RASTER renderer change detected")
+                elif 'Vector' in layer_class_name:
+                    is_vector_style_change = True
+                    self.debug_print("BETA 18: VECTOR style change detected - potentially from QML loading")
+            
+            # BETA 18: Para cambios de estilo de vectores (QML loading), esperar más tiempo
+            if is_vector_style_change:
+                self.debug_print("BETA 18: Suspected QML style loading - using extended delay")
+                if self.legend_overlay:
+                    self.legend_overlay.setVisible(False)  # Ocultar temporalmente
+                
+                # Programar actualización con delay extendido
+                QTimer.singleShot(self._style_safety_delay, self._safe_post_style_update)
+                return
+            
+            # Para raster o cambios normales, usar el flujo existente con protección
+            if is_raster_change:
+                self.debug_print("BETA 18: RASTER renderer change - using raster safety protocol")
+                
+            # Resto del método existente...
             
             if self.legend_overlay and self.legend_overlay.isVisible():
                 if is_raster_change:
@@ -785,6 +831,62 @@ class CanvasLegendDockWidget(QDockWidget):
         """Handle layer style changes"""
         if self.auto_update_enabled and self.legend_overlay and self.legend_overlay.isVisible():
             QTimer.singleShot(100, self.update_legend_auto)
+    
+    def _safe_post_style_update(self):
+        """BETA 18: Actualización segura después de cambios de estilo (especialmente QML loading)"""
+        try:
+            self.debug_print("BETA 18: Executing safe post-style update after delay")
+            
+            # Reset style loading flag
+            self._style_loading_detected = False
+            
+            # Verificar que las capas estén estables antes de recrear
+            layers_stable = True
+            try:
+                for layer in QgsProject.instance().mapLayers().values():
+                    if not layer.isValid():
+                        layers_stable = False
+                        self.debug_print(f"BETA 18: Layer {layer.name() if hasattr(layer, 'name') else 'unknown'} is not stable yet")
+                        break
+                        
+                    # Check if layer has renderer and it's accessible
+                    if hasattr(layer, 'renderer'):
+                        try:
+                            renderer = layer.renderer()
+                            if renderer and hasattr(renderer, 'symbol'):
+                                # Try to access symbol to verify it's stable
+                                test_symbol = renderer.symbol()
+                        except Exception as symbol_test_error:
+                            self.debug_print(f"BETA 18: Layer symbols not stable yet: {symbol_test_error}")
+                            layers_stable = False
+                            break
+            except Exception as stability_check_error:
+                self.debug_print(f"BETA 18: Error checking layer stability: {stability_check_error}")
+                layers_stable = False
+            
+            if not layers_stable:
+                self.debug_print("BETA 18: Layers not stable yet, extending delay")
+                QTimer.singleShot(2000, self._safe_post_style_update)  # Try again in 2 seconds
+                return
+            
+            # Layers are stable, proceed with safe recreation
+            self.debug_print("BETA 18: Layers stable, proceeding with overlay recreation")
+            
+            # Show overlay again and recreate safely
+            if self.legend_overlay:
+                self.legend_overlay.setVisible(True)
+            
+            if self.auto_update_enabled:
+                self.apply_legend()
+                
+        except Exception as e:
+            self.debug_print(f"BETA 18: Error in safe post-style update: {e}")
+            # Fallback: try basic recreation
+            try:
+                if self.auto_update_enabled:
+                    self.apply_legend()
+            except:
+                pass
             
     def update_legend_auto(self):
         """Update legend automatically without user interaction - USE RECREATION STRATEGY WITH RASTER PROTECTION"""

@@ -15,18 +15,19 @@ tracker=https://github.com/joseantoniosales/qgis-arcadia-suite/issues
 repository=https://github.com/joseantoniosales/qgis-arcadia-suite
 experimental=False
 deprecated=False
-hasProcessingProvider=yes
+hasProcessingProvider=True
 server=False
-icon=icono_wfs_64.png
-changelog=1.1.0 2025-08-27
-    - Nueva opción de recorte: GEOMETRÍA sin Buffer
-    - Organización mejorada de directorios (config/, cache/, styles/)
-    - Creación automática de directorios necesarios
-    - Documentación completa del módulo de descarga
-    - Gestión mejorada de configuraciones compartidas
+icon=icon.svg
+changelog=
+Version 1.1.0 (2025-08-27)
+- Nueva opción de recorte: GEOMETRÍA sin Buffer
+- Organización mejorada de directorios (config/, cache/, styles/)
+- Creación automática de directorios necesarios
+- Documentación completa del módulo de descarga
+- Gestión mejorada de configuraciones compartidas
 
-changelog=1.0.0 2024-02-27
-    - Primera versión pública
-    - Soporte para descarga y gestión de fuentes WFS
-    - Herramientas de recorte y filtrado
-    - Soporte para caché y estilos compartidos
+Version 1.0.0 (2024-02-27)
+- Primera versión pública
+- Soporte para descarga y gestión de fuentes WFS
+- Herramientas de recorte y filtrado
+- Soporte para caché y estilos compartidos

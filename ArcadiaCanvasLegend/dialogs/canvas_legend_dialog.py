@@ -176,7 +176,7 @@ class CanvasLegendOverlay(QWidget):
             
             if symbols:
                 # Draw each symbol
-                for symbol_info in symbols:
+                for i, symbol_info in enumerate(symbols):
                     symbol_rect = QRect(padding + 5, y_offset + 3, symbol_width, 16)
                     
                     # Get symbol and color info
@@ -185,6 +185,8 @@ class CanvasLegendOverlay(QWidget):
                     layer_type = symbol_info.get('layer_type', 'unknown')
                     geometry_type = symbol_info.get('geometry_type', 'unknown')
                     label = symbol_info.get('label', layer_name)
+                    
+                    print(f"  Drawing symbol {i} for {layer_name}: type={layer_type}, geom={geometry_type}, has_symbol={symbol is not None}")
                     
                     # Draw symbol with improved rendering
                     self.draw_symbol_safe(painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type)
@@ -229,8 +231,9 @@ class CanvasLegendOverlay(QWidget):
     
     def draw_symbol_safe(self, painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type='unknown'):
         """Draw symbol with multiple fallback methods"""
+        method_used = "none"
         try:
-            print(f"Drawing symbol - layer_type: {layer_type}, geometry_type: {geometry_type}")
+            print(f"    draw_symbol_safe: layer_type={layer_type}, geometry_type={geometry_type}, has_symbol={symbol is not None}")
             
             if symbol and layer_type != 'raster':
                 # Method 1: Try asImage (best for getting actual rendered symbol)
@@ -241,9 +244,11 @@ class CanvasLegendOverlay(QWidget):
                         if image and not image.isNull():
                             pixmap = QPixmap.fromImage(image)
                             painter.drawPixmap(symbol_rect, pixmap)
+                            method_used = "asImage"
+                            print(f"    -> SUCCESS: Used asImage method")
                             return
                     except Exception as e:
-                        print(f"asImage failed: {e}")
+                        print(f"    -> asImage failed: {e}")
                 
                 # Method 2: Try exportImage
                 if hasattr(symbol, 'exportImage'):
@@ -253,9 +258,11 @@ class CanvasLegendOverlay(QWidget):
                         if image and not image.isNull():
                             pixmap = QPixmap.fromImage(image)
                             painter.drawPixmap(symbol_rect, pixmap)
+                            method_used = "exportImage"
+                            print(f"    -> SUCCESS: Used exportImage method")
                             return
                     except Exception as e:
-                        print(f"exportImage failed: {e}")
+                        print(f"    -> exportImage failed: {e}")
                 
                 # Method 3: Custom rendering based on geometry type
                 pixmap = QPixmap(symbol_rect.width(), symbol_rect.height())
@@ -268,6 +275,7 @@ class CanvasLegendOverlay(QWidget):
                         
                         # Get symbol color
                         symbol_color_to_use = symbol.color() if hasattr(symbol, 'color') else symbol_color
+                        print(f"    -> Custom rendering with color: {symbol_color_to_use.name() if symbol_color_to_use else 'None'}")
                         
                         # Different rendering based on geometry type
                         if geometry_type == 'point':
@@ -277,6 +285,7 @@ class CanvasLegendOverlay(QWidget):
                             center = QPointF(symbol_rect.width()/2, symbol_rect.height()/2)
                             radius = min(symbol_rect.width(), symbol_rect.height()) // 3
                             symbol_painter.drawEllipse(center, radius, radius)
+                            method_used = "custom_point"
                             
                         elif geometry_type == 'line':
                             # Draw line
@@ -284,22 +293,28 @@ class CanvasLegendOverlay(QWidget):
                             symbol_painter.setPen(pen)
                             symbol_painter.drawLine(2, symbol_rect.height()//2, 
                                                   symbol_rect.width()-2, symbol_rect.height()//2)
+                            method_used = "custom_line"
                                                   
                         elif geometry_type == 'polygon':
                             # Draw filled rectangle for polygons
                             symbol_painter.setBrush(symbol_color_to_use)
                             symbol_painter.setPen(QPen(symbol_color_to_use.darker(120), 1))
                             symbol_painter.drawRect(2, 2, symbol_rect.width()-4, symbol_rect.height()-4)
+                            method_used = "custom_polygon"
                             
                         else:
                             # Default: filled rectangle
                             symbol_painter.fillRect(0, 0, symbol_rect.width(), symbol_rect.height(), symbol_color_to_use)
+                            method_used = "custom_default"
+                            
+                        print(f"    -> SUCCESS: Used {method_used} method")
                             
                     except Exception as render_error:
-                        print(f"Custom rendering failed: {render_error}")
+                        print(f"    -> Custom rendering failed: {render_error}")
                         # Emergency fallback within the painter context
                         color = symbol.color() if hasattr(symbol, 'color') else symbol_color or QColor('lightgray')
                         symbol_painter.fillRect(0, 0, symbol_rect.width(), symbol_rect.height(), color)
+                        method_used = "custom_fallback"
                     finally:
                         symbol_painter.end()
                         
@@ -319,37 +334,48 @@ class CanvasLegendOverlay(QWidget):
                                 center = QPointF(symbol_rect.center())
                                 radius = min(symbol_rect.width(), symbol_rect.height()) // 3
                                 painter.drawEllipse(center, radius, radius)
+                                method_used = "direct_point"
                             elif geometry_type == 'line':
                                 pen = QPen(color, 2)
                                 painter.setPen(pen)
                                 painter.drawLine(symbol_rect.left()+2, symbol_rect.center().y(), 
                                                symbol_rect.right()-2, symbol_rect.center().y())
+                                method_used = "direct_line"
                             else:
                                 painter.fillRect(symbol_rect, color)
+                                method_used = "direct_fill"
+                            print(f"    -> SUCCESS: Used {method_used} method")
                             return
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"    -> Direct color failed: {e}")
             
             # Method 5: Use provided symbol_color with geometry awareness
             if symbol_color and symbol_color.isValid():
+                print(f"    -> Using provided symbol_color: {symbol_color.name()}")
                 if geometry_type == 'point':
                     painter.setBrush(symbol_color)
                     painter.setPen(QPen(symbol_color.darker(120), 1))
                     center = QPointF(symbol_rect.center())
                     radius = min(symbol_rect.width(), symbol_rect.height()) // 3
                     painter.drawEllipse(center, radius, radius)
+                    method_used = "provided_point"
                 elif geometry_type == 'line':
                     pen = QPen(symbol_color, 2)
                     painter.setPen(pen)
                     painter.drawLine(symbol_rect.left()+2, symbol_rect.center().y(), 
                                    symbol_rect.right()-2, symbol_rect.center().y())
+                    method_used = "provided_line"
                 else:
                     painter.fillRect(symbol_rect, symbol_color)
+                    method_used = "provided_fill"
+                print(f"    -> SUCCESS: Used {method_used} method")
                 return
                 
             # Method 6: Default colors by layer type and geometry
+            print(f"    -> Using default colors for {layer_type}/{geometry_type}")
             if layer_type == 'raster':
                 painter.fillRect(symbol_rect, QColor(200, 200, 200))  # Light gray for rasters
+                method_used = "default_raster"
             else:
                 # Default colors based on geometry type
                 if geometry_type == 'point':
@@ -359,22 +385,30 @@ class CanvasLegendOverlay(QWidget):
                     center = QPointF(symbol_rect.center())
                     radius = min(symbol_rect.width(), symbol_rect.height()) // 3
                     painter.drawEllipse(center, radius, radius)
+                    method_used = "default_point"
                 elif geometry_type == 'line':
                     default_color = QColor(100, 255, 100)  # Green for lines
                     pen = QPen(default_color, 2)
                     painter.setPen(pen)
                     painter.drawLine(symbol_rect.left()+2, symbol_rect.center().y(), 
                                    symbol_rect.right()-2, symbol_rect.center().y())
+                    method_used = "default_line"
                 elif geometry_type == 'polygon':
                     default_color = QColor(100, 100, 255)  # Blue for polygons
                     painter.fillRect(symbol_rect, default_color)
+                    method_used = "default_polygon"
                 else:
                     painter.fillRect(symbol_rect, QColor(180, 180, 180))  # Gray for unknown
+                    method_used = "default_unknown"
+            print(f"    -> SUCCESS: Used {method_used} method")
                 
         except Exception as e:
-            print(f"Error in draw_symbol_safe: {e}")
+            print(f"    -> ERROR in draw_symbol_safe: {e}")
             # Emergency fallback
             painter.fillRect(symbol_rect, QColor('lightgray'))
+            method_used = "emergency_fallback"
+            
+        print(f"    -> Final method used: {method_used}")
 
 
 class CanvasLegendDialog(QDialog):
@@ -767,7 +801,7 @@ class CanvasLegendDialog(QDialog):
                     # Single layer
                     layer = node.layer()
                     if node.isVisible() and layer.isValid():
-                        print(f"Processing layer: {layer.name()}, visible: {node.isVisible()}")
+                        print(f"Processing layer: {layer.name()}, visible: {node.isVisible()}, type: {layer.type()}")
                         
                         layer_item = {
                             'name': layer.name(),
@@ -778,7 +812,11 @@ class CanvasLegendDialog(QDialog):
                         }
                         
                         # Get symbols for all layer types
-                        layer_item['symbols'] = self.get_layer_symbols(layer)
+                        symbols = self.get_layer_symbols(layer)
+                        layer_item['symbols'] = symbols
+                        print(f"  -> Found {len(symbols)} symbols for {layer.name()}")
+                        for i, sym in enumerate(symbols):
+                            print(f"    Symbol {i}: label='{sym.get('label')}', type='{sym.get('layer_type')}', geom='{sym.get('geometry_type')}'")
                         items.append(layer_item)
                         
                 elif hasattr(node, 'children'):
@@ -836,10 +874,12 @@ class CanvasLegendDialog(QDialog):
         """Get symbols for a layer"""
         symbols = []
         try:
-            print(f"Getting symbols for layer: {layer.name()}, type: {layer.type()}")
+            print(f"=== get_layer_symbols for {layer.name()} ===")
+            print(f"Layer type: {layer.type()} (0=Raster, 1=Vector)")
             
             # Handle raster layers
             if layer.type() == 0:  # QgsMapLayer.RasterLayer
+                print(f"-> Raster layer detected")
                 symbols.append({
                     'label': layer.name(),
                     'symbol': None,
@@ -851,6 +891,7 @@ class CanvasLegendDialog(QDialog):
             
             # Handle vector layers
             if layer.type() == 1:  # QgsMapLayer.VectorLayer
+                print(f"-> Vector layer detected")
                 # Get geometry type
                 geometry_type = 'unknown'
                 if hasattr(layer, 'geometryType'):
@@ -862,10 +903,10 @@ class CanvasLegendDialog(QDialog):
                     elif geom_type == 2:  # Polygon
                         geometry_type = 'polygon'
                 
-                print(f"Vector layer geometry type: {geometry_type}")
+                print(f"-> Geometry type: {geometry_type} (geom_type={geom_type if 'geom_type' in locals() else 'N/A'})")
                 
                 if not hasattr(layer, 'renderer') or not layer.renderer():
-                    print(f"Layer {layer.name()} has no renderer")
+                    print(f"-> Layer {layer.name()} has no renderer")
                     symbols.append({
                         'label': layer.name(),
                         'symbol': None,
@@ -877,19 +918,24 @@ class CanvasLegendDialog(QDialog):
                     
                 renderer = layer.renderer()
                 renderer_type = renderer.type()
-                print(f"Renderer type: {renderer_type}")
+                print(f"-> Renderer type: {renderer_type}")
                 
                 if renderer_type == 'singleSymbol':
+                    print(f"-> Processing singleSymbol renderer")
                     # Single symbol renderer
                     symbol = renderer.symbol()
                     if symbol:
+                        symbol_color = symbol.color() if hasattr(symbol, 'color') else QColor('blue')
+                        print(f"-> Symbol found, color: {symbol_color.name()}")
                         symbols.append({
                             'label': layer.name(),
                             'symbol': symbol,
-                            'color': symbol.color() if hasattr(symbol, 'color') else QColor('blue'),
+                            'color': symbol_color,
                             'layer_type': 'vector',
                             'geometry_type': geometry_type
                         })
+                    else:
+                        print(f"-> No symbol in singleSymbol renderer")
                         
                 elif renderer_type == 'categorizedSymbol':
                     # Categorized renderer

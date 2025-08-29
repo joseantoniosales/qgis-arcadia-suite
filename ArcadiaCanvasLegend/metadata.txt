@@ -2,7 +2,7 @@
 name=ArcadiaCanvasLegend
 qgisMinimumVersion=3.22
 description=Canvas Legend Overlay - Part of Arcadia Suite. Display customizable legends overlaid on the QGIS canvas with full style control and export capabilities.
-version=1.0.15
+version=1.0.16
 author=Arcadia Suite Development Team
 email=info@arcadiasuite.com
 about=This plugin allows users to display and configure map legends overlay on the QGIS canvas. Features include position and style configuration, text formatting options, background and frame customization, canvas-to-composition conversion, and export to clipboard or PNG. Part of the comprehensive Arcadia Suite for QGIS.
@@ -16,4 +16,4 @@ icon=icon.svg
 experimental=False
 deprecated=False
 server=False
-changelog=Version 1.0.15 (Beta 15) - Added defensive programming and visual placeholders for corrupted symbols. Enhanced symbol validation with parent layer checks. Improved error handling with type-specific placeholders (corrupted=red X, missing=gray ?, unknown=gray box).
+changelog=Version 1.0.16 (Beta 16) - CRITICAL stability fixes: Anti-recreation protection, throttled apply operations, enhanced paintEvent validation, safe positioning with bounds checking, prevention of rapid apply loops, canvas state validation before painting.

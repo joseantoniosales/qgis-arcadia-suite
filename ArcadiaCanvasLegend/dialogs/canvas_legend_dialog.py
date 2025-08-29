@@ -167,9 +167,23 @@ class CanvasLegendOverlay(QWidget):
         
     def paintEvent(self, event):
         """Paint the legend overlay with crash protection"""
-        # CRITICAL: Check if overlay is destroyed before any painting
+        # CRITICAL: Ultimate crash protection - multiple safety checks
         if getattr(self, '_destroyed', False):
-            self.debug_print("Skipping paintEvent: overlay is destroyed")
+            self.debug_print("ABORT: Overlay marked as destroyed")
+            return
+            
+        # Check if parent canvas still exists and is valid
+        if not self.canvas or not hasattr(self.canvas, 'isVisible'):
+            self.debug_print("ABORT: Canvas invalid or missing")
+            return
+            
+        # Check if widget is still valid
+        try:
+            if not self.isVisible() or not self.parent():
+                self.debug_print("ABORT: Widget not visible or no parent")
+                return
+        except:
+            self.debug_print("ABORT: Widget state check failed")
             return
             
         # Prevent recursive painting
@@ -180,6 +194,7 @@ class CanvasLegendOverlay(QWidget):
         if not self.legend_items:
             return
             
+        # CRITICAL: Set painting flag BEFORE any operations
         self._painting = True
         painter = QPainter()
         
@@ -606,6 +621,10 @@ class CanvasLegendDockWidget(QDockWidget):
         self.auto_update_enabled = True
         self.debug_mode = False  # Debug mode disabled by default
         
+        # CRITICAL: Initialize protection flags
+        self._applying_legend = False  # Prevent recreation loops
+        self._last_apply_time = 0  # Throttle rapid applies
+        
         # Create central widget
         self.central_widget = QWidget()
         self.setWidget(self.central_widget)
@@ -722,7 +741,7 @@ class CanvasLegendDockWidget(QDockWidget):
         
     def setupUi(self):
         """Set up the user interface"""
-        self.setWindowTitle('Arcadia Canvas Legend - Beta 15 (Defensive + Placeholders)')
+        self.setWindowTitle('Arcadia Canvas Legend - Beta 16 (Anti-Recreation + Safe Positioning)')
         
         # Main layout for central widget
         main_layout = QVBoxLayout(self.central_widget)
@@ -1025,8 +1044,45 @@ class CanvasLegendDockWidget(QDockWidget):
                               self.tr('Error creating preview: {}').format(str(e)))
             
     def apply_legend(self):
-        """Apply the legend overlay to canvas"""
+        """Apply the legend overlay to canvas with anti-recreation protection"""
         try:
+            # CRITICAL: Throttle rapid applies to prevent recreation loops
+            import time
+            current_time = time.time()
+            if current_time - getattr(self, '_last_apply_time', 0) < 0.5:  # 500ms throttle
+                self.debug_print("THROTTLED: Apply called too soon, ignoring")
+                return
+            self._last_apply_time = current_time
+            
+            # CRITICAL: Prevent rapid recreation cycles
+            if hasattr(self, '_applying_legend') and self._applying_legend:
+                self.debug_print("ABORT: Already applying legend - preventing recursion")
+                return
+                
+            self._applying_legend = True
+            
+            # If overlay exists and is working, just update instead of recreating
+            if self.legend_overlay and not getattr(self.legend_overlay, '_destroyed', False):
+                try:
+                    # Try to update existing overlay instead of recreating
+                    self.debug_print("Updating existing overlay instead of recreating")
+                    settings = self.get_current_settings()
+                    legend_items = self.get_legend_items()
+                    
+                    # Update content safely
+                    self.legend_overlay.update_legend_content(legend_items, settings)
+                    self.position_overlay()
+                    
+                    if not self.legend_overlay.isVisible():
+                        self.legend_overlay.show()
+                        
+                    self.save_settings()
+                    return
+                    
+                except Exception as update_error:
+                    self.debug_print(f"Update failed, will recreate: {update_error}")
+                    # Fall through to recreation
+            
             # CRITICAL: Safely destroy existing overlay before creating new one
             if self.legend_overlay:
                 self.debug_print("Destroying existing overlay before creating new one")
@@ -1040,20 +1096,29 @@ class CanvasLegendDockWidget(QDockWidget):
                 self.legend_overlay.deleteLater()
                 self.legend_overlay = None
                 
-                # Small delay to ensure Qt processes the deletion
-                QTimer.singleShot(50, self._create_new_overlay)
+                # Longer delay to ensure Qt processes the deletion completely
+                QTimer.singleShot(150, self._create_new_overlay_safe)
                 return
             else:
-                self._create_new_overlay()
+                self._create_new_overlay_safe()
                 
         except Exception as e:
+            self.debug_print(f"Error in apply_legend: {e}")
             QMessageBox.critical(self, self.tr('Error'), 
                                self.tr('Error applying legend: {}').format(str(e)))
+        finally:
+            # Always reset the applying flag after a delay
+            QTimer.singleShot(200, lambda: setattr(self, '_applying_legend', False))
                                
-    def _create_new_overlay(self):
-        """Create new overlay after ensuring old one is destroyed"""
+    def _create_new_overlay_safe(self):
+        """Create new overlay after ensuring old one is destroyed - with safety checks"""
         try:
-            self.debug_print("Creating new legend overlay")
+            # Additional safety check
+            if hasattr(self, '_applying_legend') and not self._applying_legend:
+                self.debug_print("ABORT: Apply operation was cancelled")
+                return
+                
+            self.debug_print("Creating new legend overlay with enhanced safety")
             
             # Create new overlay
             self.legend_overlay = CanvasLegendOverlay(self.canvas)
@@ -1067,8 +1132,8 @@ class CanvasLegendDockWidget(QDockWidget):
             # Update overlay
             self.legend_overlay.update_legend_content(legend_items, settings)
             
-            # Position overlay
-            self.position_overlay()
+            # Position overlay with bounds checking
+            self.position_overlay_safe()
             
             # Show overlay
             self.legend_overlay.show()
@@ -1079,6 +1144,9 @@ class CanvasLegendDockWidget(QDockWidget):
             self.debug_print(f"Error creating new overlay: {e}")
             QMessageBox.critical(self, self.tr('Error'), 
                                self.tr('Error creating legend overlay: {}').format(str(e)))
+        finally:
+            # Always reset the applying flag
+            self._applying_legend = False
             
     def get_current_settings(self):
         """Get current settings from UI"""
@@ -1552,56 +1620,93 @@ class CanvasLegendDockWidget(QDockWidget):
         self.debug_print(f"Found {len(symbols)} symbols for layer {layer.name()}")
         return symbols
         
+    def position_overlay_safe(self):
+        """Position the legend overlay on canvas with enhanced crash protection and bounds checking"""
+        if not self.legend_overlay or getattr(self.legend_overlay, '_destroyed', False):
+            self.debug_print("ABORT: No overlay or overlay destroyed")
+            return
+            
+        try:
+            # Get canvas size (local coordinates since overlay is child of canvas)
+            canvas_size = self.canvas.size()
+            self.debug_print(f"Canvas size: {canvas_size.width()}x{canvas_size.height()}")
+            
+            # Validate canvas size
+            if canvas_size.width() <= 0 or canvas_size.height() <= 0:
+                self.debug_print("ABORT: Invalid canvas size")
+                return
+            
+            # Use safe resize method
+            target_width = max(100, min(self.width_spin.value(), canvas_size.width() - 20))
+            target_height = max(100, min(self.height_spin.value(), canvas_size.height() - 20))
+            
+            self.debug_print(f"Resizing overlay to: {target_width}x{target_height}")
+            self.legend_overlay._safe_resize(target_width, target_height)
+            
+            # Wait a moment for resize to complete before positioning
+            QTimer.singleShot(30, lambda: self._complete_positioning_canvas_safe(canvas_size, target_width, target_height))
+            
+        except Exception as e:
+            self.debug_print(f"Error in position_overlay_safe: {e}")
+        
+    def _complete_positioning_canvas_safe(self, canvas_size, target_width, target_height):
+        """Complete the positioning in canvas local coordinates with bounds checking"""
+        if not self.legend_overlay or getattr(self.legend_overlay, '_destroyed', False):
+            self.debug_print("ABORT: Overlay destroyed during positioning")
+            return
+            
+        try:
+            position = self.position_combo.currentText().lower()
+            x_offset = max(0, self.x_offset_spin.value())
+            y_offset = max(0, self.y_offset_spin.value())
+            
+            self.debug_print(f"Position: {position}, offsets: ({x_offset}, {y_offset})")
+            
+            # Calculate position relative to canvas (local coordinates)
+            if 'top' in position and 'left' in position:
+                x = x_offset
+                y = y_offset
+            elif 'top' in position and 'right' in position:
+                x = canvas_size.width() - target_width - x_offset
+                y = y_offset
+            elif 'bottom' in position and 'left' in position:
+                x = x_offset
+                y = canvas_size.height() - target_height - y_offset
+            elif 'bottom' in position and 'right' in position:
+                x = canvas_size.width() - target_width - x_offset
+                y = canvas_size.height() - target_height - y_offset
+            else:  # Custom position
+                x = x_offset
+                y = y_offset
+                
+            # CRITICAL: Ensure overlay stays within canvas bounds with margins
+            margin = 10
+            x = max(margin, min(x, canvas_size.width() - target_width - margin))
+            y = max(margin, min(y, canvas_size.height() - target_height - margin))
+            
+            self.debug_print(f"Final position after bounds checking: ({x}, {y})")
+            
+            # Validate final position
+            if x < 0 or y < 0 or x + target_width > canvas_size.width() or y + target_height > canvas_size.height():
+                self.debug_print(f"WARNING: Position out of bounds, using safe default")
+                x = margin
+                y = margin
+            
+            self.legend_overlay.move(x, y)
+            self.debug_print(f"Overlay positioned at canvas coordinates: ({x}, {y})")
+            
+        except Exception as e:
+            self.debug_print(f"Error in positioning: {e}")
+            # Fallback to safe position
+            try:
+                self.legend_overlay.move(10, 10)
+                self.debug_print("Used fallback position (10, 10)")
+            except:
+                pass
+        
     def position_overlay(self):
-        """Position the legend overlay on canvas with crash protection"""
-        if not self.legend_overlay:
-            return
-            
-        # Get canvas size (local coordinates since overlay is child of canvas)
-        canvas_size = self.canvas.size()
-        
-        # Use safe resize method
-        target_width = self.width_spin.value()
-        target_height = self.height_spin.value()
-        self.legend_overlay._safe_resize(target_width, target_height)
-        
-        # Wait a moment for resize to complete before positioning
-        QTimer.singleShot(20, lambda: self._complete_positioning_canvas_local(canvas_size))
-        
-    def _complete_positioning_canvas_local(self, canvas_size):
-        """Complete the positioning in canvas local coordinates"""
-        if not self.legend_overlay:
-            return
-            
-        overlay_size = self.legend_overlay.size()
-        
-        position = self.position_combo.currentText().lower()
-        x_offset = self.x_offset_spin.value()
-        y_offset = self.y_offset_spin.value()
-        
-        # Calculate position relative to canvas (local coordinates)
-        if 'top' in position and 'left' in position:
-            x = x_offset
-            y = y_offset
-        elif 'top' in position and 'right' in position:
-            x = canvas_size.width() - overlay_size.width() - x_offset
-            y = y_offset
-        elif 'bottom' in position and 'left' in position:
-            x = x_offset
-            y = canvas_size.height() - overlay_size.height() - y_offset
-        elif 'bottom' in position and 'right' in position:
-            x = canvas_size.width() - overlay_size.width() - x_offset
-            y = canvas_size.height() - overlay_size.height() - y_offset
-        else:  # Custom position
-            x = x_offset
-            y = y_offset
-            
-        # Ensure overlay stays within canvas bounds
-        x = max(0, min(x, canvas_size.width() - overlay_size.width()))
-        y = max(0, min(y, canvas_size.height() - overlay_size.height()))
-        
-        self.legend_overlay.move(x, y)
-        self.debug_print(f"Overlay positioned at canvas coordinates: ({x}, {y})")
+        """Legacy method - redirects to safe version"""
+        self.position_overlay_safe()
         
     def export_current_view(self):
         """Export current canvas view with legend"""

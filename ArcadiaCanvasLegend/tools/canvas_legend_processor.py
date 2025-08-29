@@ -74,11 +74,19 @@ class ExportCanvasWithLegendAlgorithm(QgsProcessingAlgorithm):
     def initAlgorithm(self, config=None):
         """Initialize algorithm parameters"""
         
+        # Código compatible con diferentes versiones de QGIS
+        try:
+            # Para versiones más recientes
+            save_behavior = QgsProcessingParameterFile.Behavior.Save
+        except AttributeError:
+            # Para versiones más antiguas
+            save_behavior = 1
+
         self.addParameter(
             QgsProcessingParameterFile(
                 self.OUTPUT_FILE,
                 self.tr('Output file'),
-                behavior=QgsProcessingParameterFile.SaveFile,
+                behavior=save_behavior,
                 fileFilter='PNG files (*.png);;JPEG files (*.jpg);;PDF files (*.pdf)'
             )
         )

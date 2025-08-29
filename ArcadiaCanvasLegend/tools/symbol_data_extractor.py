@@ -17,7 +17,8 @@ class LayerSymbolInfo:
     """Información de símbolo de una capa"""
     
     def __init__(self, layer_id: str, layer_name: str, layer_type: str, 
-                 geometry_type: str = 'unknown', symbols: List[Dict] = None):
+                 geometry_type: str = 'unknown', symbols: List[Dict] = None, 
+                 layer=None):
         self.layer_id = layer_id
         self.layer_name = layer_name
         self.layer_type = layer_type
@@ -25,6 +26,7 @@ class LayerSymbolInfo:
         self.symbols = symbols or []
         self.is_visible = True
         self.is_valid = True
+        self.layer = layer  # Referencia al QgsVectorLayer original
 
 
 class SymbolDataExtractor:
@@ -94,7 +96,8 @@ class SymbolDataExtractor:
                 layer_id=layer.id(),
                 layer_name=layer.name(),
                 layer_type=self._get_layer_type(layer),
-                geometry_type=self._get_geometry_type(layer)
+                geometry_type=self._get_geometry_type(layer),
+                layer=layer  # Referencia al layer original
             )
             
             layer_info.is_visible = layer_node.isVisible()

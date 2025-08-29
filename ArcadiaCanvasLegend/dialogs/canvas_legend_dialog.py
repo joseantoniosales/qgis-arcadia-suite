@@ -21,8 +21,8 @@ import os
 from ..utils import get_arcadia_setting, set_arcadia_setting
 
 # PLUGIN VERSION CONTROL - Single source of truth
-PLUGIN_VERSION = "1.0.21"
-PLUGIN_VERSION_NAME = "Beta 21"
+PLUGIN_VERSION = "1.0.22"
+PLUGIN_VERSION_NAME = "Beta 22"
 
 # BETA 20: Import new architecture modules
 try:
@@ -1587,6 +1587,13 @@ class CanvasLegendDockWidget(QDockWidget):
             if hasattr(self, 'pseudocolor_decimals_spin'):
                 self.pseudocolor_decimals_spin.setValue(int(decimals))
             
+            # Load debug mode setting
+            debug_enabled = get_arcadia_setting('CANVAS_LEGEND', 'debug_mode', False)
+            if hasattr(self, 'debug_mode_check'):
+                self.debug_mode_check.setChecked(bool(debug_enabled))
+                self.debug_mode = bool(debug_enabled)
+                self.debug_print(f"Loaded debug mode from settings: {debug_enabled}")
+            
         except Exception as e:
             self.debug_print(f"Error loading settings: {e}")
             
@@ -1599,6 +1606,11 @@ class CanvasLegendDockWidget(QDockWidget):
             # Save pseudocolor decimals setting
             if hasattr(self, 'pseudocolor_decimals_spin'):
                 set_arcadia_setting('CANVAS_LEGEND', 'pseudocolor_decimals', self.pseudocolor_decimals_spin.value())
+            
+            # Save debug mode setting
+            if hasattr(self, 'debug_mode'):
+                set_arcadia_setting('CANVAS_LEGEND', 'debug_mode', self.debug_mode)
+                self.debug_print(f"Saved debug mode to settings: {self.debug_mode}")
                               
         except Exception as e:
             self.debug_print(f"Error saving settings: {e}")
@@ -1764,23 +1776,35 @@ class CanvasLegendDockWidget(QDockWidget):
                             'layer_id': layer_info.layer_id,
                             'name': layer_info.layer_name,  # Legacy compatibility
                             'type': 'layer',
-                            'layer': layer_info.layer,
-                            'visible': True,
+                            'layer': layer_info.layer,  # Now this attribute exists
+                            'visible': getattr(layer_info, 'is_visible', True),
                             'is_group_child': False,
                             'symbols': []
                         }
                         
-                        # Convert symbols
+                        # Convert symbols ensuring all required attributes
                         for symbol_info in layer_info.symbols:
                             symbol_dict = {
                                 'label': symbol_info.get('label', layer_info.layer_name),
-                                'layer_type': symbol_info.get('layer_type', 'unknown'),
-                                'geometry_type': symbol_info.get('geometry_type', 'unknown'),
+                                'layer_type': symbol_info.get('layer_type', layer_info.layer_type),
+                                'geometry_type': symbol_info.get('geometry_type', layer_info.geometry_type),
                                 'color': symbol_info.get('color', QColor('gray')),
-                                'type': symbol_info.get('type', 'unknown'),
+                                'type': symbol_info.get('type', 'symbol'),
                                 'symbol': symbol_info.get('symbol')
                             }
                             item_dict['symbols'].append(symbol_dict)
+                        
+                        # If no symbols, add a default one
+                        if not item_dict['symbols']:
+                            default_symbol = {
+                                'label': layer_info.layer_name,
+                                'layer_type': layer_info.layer_type,
+                                'geometry_type': layer_info.geometry_type,
+                                'color': QColor('gray'),
+                                'type': 'default',
+                                'symbol': None
+                            }
+                            item_dict['symbols'].append(default_symbol)
                         
                         converted_items.append(item_dict)
                     else:
@@ -2572,6 +2596,14 @@ class CanvasLegendDockWidget(QDockWidget):
         """Toggle debug mode"""
         self.debug_mode = enabled
         self.debug_print(f"Debug mode {'enabled' if enabled else 'disabled'}")
+        
+        # Update symbol data extractor if available
+        if hasattr(self, '_symbol_data_extractor') and self._symbol_data_extractor:
+            self._symbol_data_extractor.debug_mode = enabled
+            self.debug_print(f"Updated symbol data extractor debug mode: {enabled}")
+        
+        # Save to persistent settings
+        self.save_settings()
         
     def hide_legend(self):
         """Hide the legend overlay"""

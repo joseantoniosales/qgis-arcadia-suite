@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4A90E2;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2E5B94;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="30" fill="url(#grad1)" stroke="#1E3A5F" stroke-width="2"/>
+  
+  <!-- Legend icon -->
+  <rect x="12" y="16" width="32" height="24" fill="#FFFFFF" stroke="#333333" stroke-width="1" rx="2"/>
+  
+  <!-- Legend items -->
+  <rect x="14" y="18" width="8" height="3" fill="#FF6B6B"/>
+  <text x="24" y="21" font-family="Arial" font-size="4" fill="#333333">Layer 1</text>
+  
+  <rect x="14" y="23" width="8" height="3" fill="#4ECDC4"/>
+  <text x="24" y="26" font-family="Arial" font-size="4" fill="#333333">Layer 2</text>
+  
+  <rect x="14" y="28" width="8" height="3" fill="#45B7D1"/>
+  <text x="24" y="31" font-family="Arial" font-size="4" fill="#333333">Layer 3</text>
+  
+  <rect x="14" y="33" width="8" height="3" fill="#96CEB4"/>
+  <text x="24" y="36" font-family="Arial" font-size="4" fill="#333333">Layer 4</text>
+  
+  <!-- Canvas representation -->
+  <rect x="16" y="44" width="32" height="16" fill="#E8F4FD" stroke="#333333" stroke-width="1" rx="1"/>
+  <text x="32" y="54" font-family="Arial" font-size="6" fill="#666666" text-anchor="middle">Canvas</text>
+  
+  <!-- Arcadia Suite identifier -->
+  <circle cx="54" cy="10" r="6" fill="#FF6B6B"/>
+  <text x="54" y="13" font-family="Arial" font-size="4" fill="#FFFFFF" text-anchor="middle">A</text>
+</svg>

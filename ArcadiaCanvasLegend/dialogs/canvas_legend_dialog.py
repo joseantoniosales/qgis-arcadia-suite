@@ -246,23 +246,38 @@ class CanvasLegendOverlay(QWidget):
         return y_offset
     
     def draw_symbol_safe(self, painter, symbol_rect, symbol, symbol_color, layer_type, geometry_type='unknown'):
-        """Draw symbol with multiple fallback methods"""
+        """Draw symbol with multiple fallback methods and crash protection"""
         method_used = "none"
         try:
             self.debug_print(f"    draw_symbol_safe: layer_type={layer_type}, geometry_type={geometry_type}, has_symbol={symbol is not None}")
             
+            # CRITICAL: Validate symbol before ANY operation to prevent crashes
             if symbol and layer_type != 'raster':
+                # Pre-validate symbol to catch corrupted symbols that cause crashes
+                try:
+                    # Test basic symbol properties that might crash
+                    _ = symbol.type()  # This can crash with corrupted symbols
+                    _ = hasattr(symbol, 'asImage')  # Safe property check
+                    self.debug_print(f"    -> Symbol validation passed")
+                except Exception as validation_error:
+                    self.debug_print(f"    -> CRITICAL: Symbol validation failed: {validation_error}")
+                    # Corrupt symbol detected - use color fallback immediately
+                    painter.fillRect(symbol_rect, symbol_color or QColor('red'))
+                    return
+                
                 # Method 1: Try asImage (best for getting actual rendered symbol)
                 if hasattr(symbol, 'asImage'):
                     try:
                         size = symbol_rect.size()
-                        image = symbol.asImage(size)
-                        if image and not image.isNull():
-                            pixmap = QPixmap.fromImage(image)
-                            painter.drawPixmap(symbol_rect, pixmap)
-                            method_used = "asImage"
-                            self.debug_print(f"    -> SUCCESS: Used asImage method")
-                            return
+                        # Additional safety check before calling asImage
+                        if size.width() > 0 and size.height() > 0:
+                            image = symbol.asImage(size)
+                            if image and not image.isNull():
+                                pixmap = QPixmap.fromImage(image)
+                                painter.drawPixmap(symbol_rect, pixmap)
+                                method_used = "asImage"
+                                self.debug_print(f"    -> SUCCESS: Used asImage method")
+                                return
                     except Exception as e:
                         self.debug_print(f"    -> asImage failed: {e}")
                 
@@ -504,7 +519,7 @@ class CanvasLegendDialog(QDialog):
         
     def setupUi(self):
         """Set up the user interface"""
-        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 08'))
+        self.setWindowTitle(self.tr('Arcadia Canvas Legend Configuration - Beta 09'))
         self.setMinimumSize(400, 600)
         
         layout = QVBoxLayout(self)
@@ -1072,17 +1087,67 @@ class CanvasLegendDialog(QDialog):
                         self.debug_print(f"-> No symbol in singleSymbol renderer")
                         
                 elif renderer_type == 'categorizedSymbol':
-                    # Categorized renderer
-                    for category in renderer.categories():
-                        if category.renderState():  # Only include enabled categories
-                            label = category.label() if category.label() else str(category.value())
-                            symbols.append({
-                                'label': label,
-                                'symbol': category.symbol(),
-                                'color': category.symbol().color() if hasattr(category.symbol(), 'color') else QColor('green'),
-                                'layer_type': 'vector',
-                                'geometry_type': geometry_type
-                            })
+                    # Categorized renderer - with crash protection
+                    self.debug_print(f"-> Processing categorizedSymbol renderer")
+                    try:
+                        categories = renderer.categories()
+                        self.debug_print(f"-> Found {len(categories)} categories")
+                        
+                        for i, category in enumerate(categories):
+                            try:
+                                if not category.renderState():  # Skip disabled categories
+                                    continue
+                                    
+                                # Safely get symbol with validation
+                                symbol = None
+                                try:
+                                    symbol = category.symbol()
+                                    if symbol is None:
+                                        self.debug_print(f"-> Category {i}: symbol is None")
+                                        continue
+                                        
+                                    # Test if symbol is valid by checking basic properties
+                                    _ = symbol.type()  # This might crash if symbol is invalid
+                                    self.debug_print(f"-> Category {i}: symbol is valid")
+                                    
+                                except Exception as symbol_error:
+                                    self.debug_print(f"-> Category {i}: Invalid symbol detected: {symbol_error}")
+                                    symbol = None
+                                    continue
+                                
+                                label = category.label() if category.label() else str(category.value())
+                                
+                                # Safely get color
+                                symbol_color = QColor('green')  # Default
+                                try:
+                                    if symbol and hasattr(symbol, 'color'):
+                                        symbol_color = symbol.color()
+                                except:
+                                    self.debug_print(f"-> Category {i}: Failed to get symbol color")
+                                
+                                symbols.append({
+                                    'label': label,
+                                    'symbol': symbol,
+                                    'color': symbol_color,
+                                    'layer_type': 'vector',
+                                    'geometry_type': geometry_type
+                                })
+                                self.debug_print(f"-> Category {i}: Added '{label}' successfully")
+                                
+                            except Exception as cat_error:
+                                self.debug_print(f"-> Category {i}: Error processing category: {cat_error}")
+                                continue
+                                
+                    except Exception as renderer_error:
+                        self.debug_print(f"-> Error processing categorized renderer: {renderer_error}")
+                        # Fallback: create simple symbol
+                        symbols.append({
+                            'label': f"{layer.name()} (Categorized - Error)",
+                            'symbol': None,
+                            'color': QColor('red'),
+                            'layer_type': 'vector_error',
+                            'geometry_type': geometry_type
+                        })
                             
                 elif renderer_type == 'graduatedSymbol':
                     # Graduated renderer

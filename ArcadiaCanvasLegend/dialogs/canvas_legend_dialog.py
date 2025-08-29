@@ -1,7 +1,7 @@
 """
 Dialog for configuring canvas legend overlay
-BETA 24 PHANTOM POINTER SOLUTION - Symbol cloning and QMutex isolation
-Implements phantom pointer protection through symbol cloning and thread-safe pre-rendering
+BETA 25 ULTIMA BALA - Complete rendering separation solution
+Implements complete separation: worker threads extract primitive data, main thread handles all rendering
 """
 
 from qgis.PyQt.QtCore import Qt, pyqtSignal, QTimer, QRect, QPointF, QSize, QThread, QObject, QMutex, QMutexLocker
@@ -21,17 +21,17 @@ import os
 from ..utils import get_arcadia_setting, set_arcadia_setting
 
 # PLUGIN VERSION CONTROL - Single source of truth
-PLUGIN_VERSION = "1.0.24"
-PLUGIN_VERSION_NAME = "Beta 24"
+PLUGIN_VERSION = "1.0.25"
+PLUGIN_VERSION_NAME = "Beta 25"
 
-# BETA 24: Import phantom pointer solution modules
+# BETA 25: Import rendering separation modules
 try:
     from ..tools.symbol_cache_manager import SymbolCacheManager
     from ..tools.symbol_data_extractor import SymbolDataExtractor, LayerSymbolInfo
-    BETA24_MODULES_AVAILABLE = True
+    BETA25_MODULES_AVAILABLE = True
 except ImportError as e:
-    print(f"BETA 24: Failed to import new modules: {e}")
-    BETA24_MODULES_AVAILABLE = False
+    print(f"BETA 25: Failed to import new modules: {e}")
+    BETA25_MODULES_AVAILABLE = False
 
 
 # BETA 23: Layer Stability Verification System
@@ -96,15 +96,15 @@ class LayerStabilityChecker(QObject):
             # Otherwise, keep checking
 
 
-# BETA 24: Safe Symbol Processing Worker with Phantom Pointer Protection
+# BETA 25: Safe Symbol Processing Worker with Rendering Separation
 class SymbolProcessingWorker(QObject):
     """
-    Worker thread for safe symbol processing with phantom pointer protection
+    Worker thread for safe symbol processing - Beta 25 rendering separation
     
-    Implementa clonación de símbolos y pre-renderizado thread-safe para eliminar
-    crashes por acceso a punteros QGIS invalidados desde worker threads.
+    Implementa separación completa: worker thread extrae SOLO datos primitivos,
+    main thread maneja TODO el renderizado para eliminar QgsRenderContext contamination.
     """
-    processing_completed = pyqtSignal(list)  # List of processed symbol data
+    processing_completed = pyqtSignal(list)  # List of processed symbol data with primitive data
     processing_failed = pyqtSignal(str)  # Error message
     cache_status = pyqtSignal(dict)  # Cache statistics
     
@@ -112,43 +112,46 @@ class SymbolProcessingWorker(QObject):
         super().__init__(parent)
         self.layer_ids_to_process = []
         
-        # Beta 24: Symbol extractor with phantom pointer protection
-        self.symbol_extractor = SymbolDataExtractor(debug_mode=True) if BETA24_MODULES_AVAILABLE else None
+        # Beta 25: Symbol extractor with rendering separation
+        self.symbol_extractor = SymbolDataExtractor(debug_mode=True) if BETA25_MODULES_AVAILABLE else None
         self._processing_mutex = QMutex()
         
     def start_processing(self, layer_ids):
-        """Start processing symbols for given layers with phantom pointer protection"""
+        """Start processing symbols for given layers - primitive data extraction only"""
         try:
             with QMutexLocker(self._processing_mutex):
                 self.layer_ids_to_process = layer_ids
-                QTimer.singleShot(0, self._process_symbols_safely)
+                QTimer.singleShot(0, self._process_symbols_primitives_only)
                 
         except Exception as e:
             self.processing_failed.emit(f"Failed to start processing: {e}")
         
-    def _process_symbols_safely(self):
-        """Process symbols in background thread with phantom pointer protection"""
+    def _process_symbols_primitives_only(self):
+        """Process symbols in background thread - ONLY primitive data extraction, NO rendering"""
         try:
             if not self.symbol_extractor:
                 self.processing_failed.emit("Symbol extractor not available")
                 return
                 
-            print(f"[Beta24] Starting safe symbol processing for {len(self.layer_ids_to_process)} layers")
+            print(f"[Beta25] Starting primitive data extraction for {len(self.layer_ids_to_process)} layers")
             
-            # Extract legend data using Beta 24 safe extraction
+            # Extract legend data using Beta 25 primitive-only extraction
             legend_data = self.symbol_extractor.extract_legend_data(visible_only=True)
             
             # Filter to only requested layers
             filtered_data = []
             for layer_info in legend_data:
                 if layer_info.layer_id in self.layer_ids_to_process:
-                    # Verify all symbols are thread-safe
+                    # Verify all symbols are worker-safe (primitive data only)
                     safe_symbols = []
                     for symbol_data in layer_info.symbols:
                         if self.symbol_extractor.verify_symbol_thread_safety(symbol_data):
+                            # Ensure no rendering occurred in worker thread
+                            if not symbol_data.get('needs_main_thread_rendering', False):
+                                print(f"[Beta25] WARNING: Symbol doesn't require main thread rendering")
                             safe_symbols.append(symbol_data)
                         else:
-                            print(f"[Beta24] Symbol not thread-safe, skipping: {symbol_data.get('label', 'unknown')}")
+                            print(f"[Beta25] Symbol not worker-safe, skipping: {symbol_data.get('label', 'unknown')}")
                     
                     if safe_symbols:
                         layer_info.symbols = safe_symbols
@@ -158,12 +161,12 @@ class SymbolProcessingWorker(QObject):
             cache_stats = self.symbol_extractor.get_cache_stats()
             self.cache_status.emit(cache_stats)
             
-            print(f"[Beta24] Successfully processed {len(filtered_data)} layers with thread-safe symbols")
+            print(f"[Beta25] Successfully processed {len(filtered_data)} layers with primitive data only")
             self.processing_completed.emit(filtered_data)
             
         except Exception as e:
-            error_msg = f"Beta 24 symbol processing failed: {e}"
-            print(f"[Beta24] {error_msg}")
+            error_msg = f"Beta 25 primitive data extraction failed: {e}"
+            print(f"[Beta25] {error_msg}")
             self.processing_failed.emit(error_msg)
             
     def _extract_layer_symbols(self, layer):
@@ -1122,8 +1125,8 @@ class CanvasLegendDockWidget(QDockWidget):
         self._style_safety_delay = 5000  # 5 segundos de espera tras cambios de estilo
         self._properties_dialog_open = False
         
-        # BETA 24: Initialize phantom pointer protection components
-        self._initialize_beta24_components()
+        # BETA 25: Initialize rendering separation components
+        self._initialize_beta25_components()
         
         # BETA 23: Initialize asynchronous stability verification system
         self._initialize_beta23_components()
@@ -1144,37 +1147,44 @@ class CanvasLegendDockWidget(QDockWidget):
         # Connect close event to cleanup
         self.closeEvent = self.custom_close_event
         
-    def _initialize_beta24_components(self):
-        """Initialize Beta 24 phantom pointer protection components"""
+    def _initialize_beta25_components(self):
+        """Initialize Beta 25 rendering separation components"""
         try:
-            if BETA24_MODULES_AVAILABLE:
-                print("[Beta24] Initializing phantom pointer protection components...")
+            if BETA25_MODULES_AVAILABLE:
+                print("[Beta25] Initializing rendering separation components...")
                 
                 # Initialize symbol cache manager
                 self._symbol_cache = SymbolCacheManager(max_cache_size=1000)
                 self._symbol_cache.cache_updated.connect(self._on_symbol_cache_updated)
                 
-                # Initialize symbol data extractor with phantom pointer protection
+                # Initialize symbol data extractor with rendering separation
                 self._symbol_extractor = SymbolDataExtractor(debug_mode=True)
                 
-                # Initialize phantom pointer protection mutex
-                self._phantom_protection_mutex = QMutex()
+                # Initialize rendering separation mutex
+                self._rendering_separation_mutex = QMutex()
                 
-                print("[Beta24] Phantom pointer protection components initialized successfully")
+                # Beta 25: Initialize main thread rendering components
+                self._main_thread_render_context = None
+                self._pending_symbols_for_rendering = []
+                
+                print("[Beta25] Rendering separation components initialized successfully")
                 
             else:
-                print("[Beta24] Modules not available, using fallback")
+                print("[Beta25] Modules not available, using fallback")
                 self._symbol_cache = None
                 self._symbol_extractor = None
-                self._phantom_protection_mutex = QMutex()
+                self._rendering_separation_mutex = QMutex()
+                self._main_thread_render_context = None
+                self._pending_symbols_for_rendering = []
                 
         except Exception as e:
-            print(f"[Beta24] Failed to initialize components: {e}")
+            print(f"[Beta25] Failed to initialize components: {e}")
             self._symbol_cache = None
             self._symbol_extractor = None
-            self._phantom_protection_mutex = QMutex()
-            self._symbol_data_extractor = None
-            self.debug_print(f"BETA 20: Failed to initialize new components: {e}")
+            self._rendering_separation_mutex = QMutex()
+            self._main_thread_render_context = None
+            self._pending_symbols_for_rendering = []
+            self.debug_print(f"BETA 25: Failed to initialize rendering separation components: {e}")
             import traceback
             traceback.print_exc()
     
@@ -1186,14 +1196,14 @@ class CanvasLegendDockWidget(QDockWidget):
             self._stability_checker.stability_confirmed.connect(self._on_layer_stability_confirmed)
             self._stability_checker.stability_failed.connect(self._on_layer_stability_failed)
             
-            # Symbol processing worker thread with Beta 24 phantom pointer protection
+            # Symbol processing worker thread with Beta 25 rendering separation
             self._worker_thread = QThread()
             self._symbol_worker = SymbolProcessingWorker()
             self._symbol_worker.moveToThread(self._worker_thread)
             self._symbol_worker.processing_completed.connect(self._on_symbol_processing_completed)
             self._symbol_worker.processing_failed.connect(self._on_symbol_processing_failed)
             
-            # Beta 24: Connect cache status signal
+            # Beta 25: Connect cache status signal
             self._symbol_worker.cache_status.connect(self._on_cache_status_updated)
             
             self._worker_thread.start()
@@ -1263,35 +1273,111 @@ class CanvasLegendDockWidget(QDockWidget):
             self._exit_hibernation_mode()
             
     def _on_symbol_processing_completed(self, processed_data):
-        """Handle completed symbol processing"""
-        self.debug_print(f"BETA 23: Symbol processing completed - {len(processed_data)} layers")
+        """Handle completed symbol processing - Beta 25 two-phase system"""
+        self.debug_print(f"BETA 25: Primitive data extraction completed - {len(processed_data)} layers")
         self._processing_symbols = False
         
-        # Store processed data and recreate legend
-        self._processed_legend_data = processed_data
-        self._exit_hibernation_mode()
+        # Beta 25: Phase 2 - Main thread rendering of primitive data
+        self._render_symbols_in_main_thread(processed_data)
+        
+    def _render_symbols_in_main_thread(self, processed_data):
+        """Beta 25: Phase 2 - Convert primitive data to images in main thread ONLY"""
+        try:
+            self.debug_print("BETA 25: Starting main thread rendering phase...")
+            
+            # Create safe render context in main thread
+            safe_render_context = self._create_main_thread_render_context()
+            
+            # Process each layer's symbols
+            for layer_info in processed_data:
+                for symbol_data in layer_info.symbols:
+                    if symbol_data.get('needs_main_thread_rendering', False):
+                        # Render the symbol using cloned symbol + primitive data
+                        rendered_image = self._render_symbol_safely_main_thread(
+                            symbol_data, safe_render_context
+                        )
+                        if rendered_image:
+                            symbol_data['symbol_image'] = rendered_image
+                            symbol_data['main_thread_rendered'] = True
+                        else:
+                            self.debug_print(f"BETA 25: Failed to render symbol: {symbol_data.get('label', 'unknown')}")
+                    
+            # Store processed data and recreate legend
+            self._processed_legend_data = processed_data
+            self._exit_hibernation_mode()
+            
+            self.debug_print("BETA 25: Main thread rendering completed successfully")
+            
+        except Exception as e:
+            self.debug_print(f"BETA 25: Main thread rendering failed: {e}")
+            self._exit_hibernation_mode()
+    
+    def _create_main_thread_render_context(self):
+        """Create safe render context in main thread only"""
+        try:
+            from qgis.core import QgsRenderContext, QgsMapSettings
+            
+            # Create safe map settings in main thread
+            map_settings = QgsMapSettings()
+            map_settings.setOutputSize(QSize(24, 24))  # Small icon size
+            map_settings.setOutputDpi(96)
+            
+            # Create render context in main thread only
+            render_context = QgsRenderContext()
+            render_context.setMapSettings(map_settings)
+            render_context.setScaleFactor(1.0)
+            
+            return render_context
+            
+        except Exception as e:
+            self.debug_print(f"BETA 25: Failed to create main thread render context: {e}")
+            return None
+    
+    def _render_symbol_safely_main_thread(self, symbol_data, render_context):
+        """Render symbol safely in main thread using cloned symbol and primitive data"""
+        try:
+            cloned_symbol = symbol_data.get('symbol')
+            if not cloned_symbol or not render_context:
+                return None
+                
+            # Use primitive data to set size if available
+            primitive_data = symbol_data.get('primitive_data', {})
+            size = primitive_data.get('size', 16)
+            
+            # Set symbol size
+            if hasattr(cloned_symbol, 'setSize'):
+                cloned_symbol.setSize(size)
+            
+            # Render symbol to image IN MAIN THREAD ONLY
+            symbol_image = cloned_symbol.asImage(QSize(24, 24))
+            
+            return symbol_image
+            
+        except Exception as e:
+            self.debug_print(f"BETA 25: Symbol rendering error in main thread: {e}")
+            return None
         
     def _on_symbol_processing_failed(self, error):
         """Handle symbol processing failure"""
-        self.debug_print(f"BETA 24: Symbol processing failed: {error}")
+        self.debug_print(f"BETA 25: Symbol processing failed: {error}")
         self._processing_symbols = False
         self._exit_hibernation_mode()
         
     def _on_cache_status_updated(self, cache_stats):
-        """Handle Beta 24 cache status updates"""
+        """Handle Beta 25 cache status updates"""
         try:
             clone_count = cache_stats.get('clone_cache_size', 0)
-            image_count = cache_stats.get('image_cache_size', 0)
+            primitive_data_count = cache_stats.get('primitive_data_cache_size', 0)
             
-            self.debug_print(f"BETA 24: Cache status - Clones: {clone_count}, Images: {image_count}")
+            self.debug_print(f"BETA 25: Cache status - Clones: {clone_count}, Primitive data: {primitive_data_count}")
             
             # Opcional: Mostrar estadísticas en la UI para debugging
             if hasattr(self, 'status_label') and self.status_label:
-                status_text = f"Beta 24: {clone_count} clones, {image_count} images"
+                status_text = f"Beta 25: {clone_count} clones, {primitive_data_count} primitives"
                 self.status_label.setText(status_text)
                 
         except Exception as e:
-            self.debug_print(f"BETA 24: Error updating cache status: {e}")
+            self.debug_print(f"BETA 25: Error updating cache status: {e}")
         
     def _enter_hibernation_mode(self):
         """Enter legend hibernation mode during layer operations"""

@@ -1,7 +1,8 @@
 """
 Symbol Data Extractor - Abstracción para obtener símbolos de QGIS
-Beta 24 - Implementación de "Puntero Fantasma" con clonación de símbolos
-Solución phantom pointer: clonación de símbolos y sincronización QMutex
+Beta 25 - SEPARACIÓN TOTAL DE RENDERIZADO
+Extracción de datos primitivos SIN renderizado en worker threads
+Solo el main thread puede hacer .asImage() con QgsRenderContext seguro
 """
 
 from typing import List, Dict, Any, Optional, Tuple
@@ -16,7 +17,7 @@ from qgis.PyQt.QtCore import QMutex, QMutexLocker, QSize
 
 
 class LayerSymbolInfo:
-    """Información de símbolo de una capa - Beta 24 con protección phantom pointer"""
+    """Información de símbolo de una capa - Beta 25 SIN renderizado en worker thread"""
     
     def __init__(self, layer_id: str, layer_name: str, layer_type: str, 
                  geometry_type: str = 'unknown', symbols: List[Dict] = None, 
@@ -30,64 +31,47 @@ class LayerSymbolInfo:
         self.is_valid = True
         self.layer = layer  # Referencia al QgsVectorLayer original
         
-        # Beta 24: Protección contra phantom pointers
+        # Beta 25: SOLO datos primitivos y símbolos clonados - NO IMÁGENES
         self._symbol_clones = {}  # Cache de símbolos clonados
-        self._symbol_images = {}  # Cache de imágenes de símbolos pre-renderizadas
+        self._primitive_data = {}  # Datos primitivos extraídos (colores como RGBA, etc.)
         self._last_clone_time = 0
         self._clone_valid = True
+        self._needs_main_thread_rendering = True  # Bandera para renderizado posterior
 
 
 class SymbolDataExtractor:
     """
-    Extractor de datos de símbolos de QGIS - Beta 24 Phantom Pointer Solution
+    Extractor de datos de símbolos de QGIS - Beta 25 SEPARACIÓN TOTAL
     
-    Implementa clonación de símbolos y sincronización QMutex para eliminar
-    crashes por acceso a punteros invalidados desde worker threads.
+    NUEVA ESTRATEGIA: Worker thread SOLO extrae datos primitivos y clona símbolos.
+    NUNCA hace renderizado (.asImage, .drawPreviewIcon). 
+    El main thread es el ÚNICO que puede renderizar con QgsRenderContext seguro.
     """
     
     def __init__(self, debug_mode: bool = False):
         self.debug_mode = debug_mode
         self._last_extraction_time = 0
         
-        # Beta 24: Protección phantom pointer con QMutex
+        # Beta 25: Mutex solo para clonación, NO para renderizado
         self._symbol_mutex = QMutex()
-        self._render_context_mutex = QMutex()
-        self._clone_cache = {}  # Cache global de símbolos clonados
-        self._image_cache = {}  # Cache de imágenes pre-renderizadas
+        self._clone_cache = {}  # Cache de símbolos clonados
+        self._primitive_cache = {}  # Cache de datos primitivos extraídos
         
-        # Configuración de rendering seguro
-        self._symbol_size = QSize(16, 16)  # Tamaño estándar para íconos
-        self._render_context = None
+        # Beta 25: ELIMINAMOS todo lo relacionado con imágenes y renderizado
+        # NO MÁS: render_context, image_cache, pre_render_symbol_image
         
     def debug_print(self, message: str):
         """Print debug message if debug mode is enabled"""
         if self.debug_mode:
-            print(f"[SymbolExtractor-Beta24] {message}")
+            print(f"[SymbolExtractor-Beta25] {message}")
     
-    def _create_safe_render_context(self) -> Optional[QgsRenderContext]:
-        """Crear contexto de renderizado seguro para worker threads"""
-        try:
-            with QMutexLocker(self._render_context_mutex):
-                if not self._render_context:
-                    # Crear contexto básico para rendering
-                    context = QgsRenderContext()
-                    # Configuración mínima y segura
-                    context.setScaleFactor(1.0)
-                    self._render_context = context
-                
-                return self._render_context
-                
-        except Exception as e:
-            self.debug_print(f"Error creating render context: {e}")
-            return None
     
     def _clone_symbol_safely(self, symbol, symbol_id: str = None) -> Optional[Any]:
         """
-        Clona un símbolo de manera segura para uso en worker threads
+        Clona un símbolo de manera segura para almacenamiento
         
-        Esta es la clave de la solución phantom pointer: en lugar de pasar
-        referencias a símbolos que pueden invalidarse, creamos clones 
-        independientes que son seguros de usar en cualquier thread.
+        Beta 25: SOLO clonación, SIN renderizado.
+        El símbolo clonado se almacena para uso posterior en main thread.
         """
         if not symbol:
             return None
@@ -103,7 +87,7 @@ class SymbolDataExtractor:
                         return cached_clone
                 
                 # Realizar clonación segura
-                self.debug_print(f"Cloning symbol for safe worker thread access: {cache_key}")
+                self.debug_print(f"Cloning symbol for safe storage: {cache_key}")
                 
                 if hasattr(symbol, 'clone'):
                     # Método preferido: clone() nativo de QGIS
@@ -116,9 +100,9 @@ class SymbolDataExtractor:
                     self.debug_print(f"Successfully cloned symbol using .copy() method")
                     
                 else:
-                    # Fallback: intentar recrear símbolo básico
-                    self.debug_print(f"No clone method available, creating fallback")
-                    cloned_symbol = self._create_fallback_symbol(symbol)
+                    # Sin clonación disponible
+                    self.debug_print(f"No clone method available, storing None")
+                    cloned_symbol = None
                 
                 # Almacenar en cache
                 if cloned_symbol:
@@ -129,90 +113,109 @@ class SymbolDataExtractor:
                 
         except Exception as e:
             self.debug_print(f"Error cloning symbol safely: {e}")
-            return self._create_fallback_symbol(symbol)
-    
-    def _create_fallback_symbol(self, original_symbol) -> Optional[Any]:
-        """Crear símbolo de fallback cuando falla la clonación"""
-        try:
-            # Intentar extraer información básica del símbolo original
-            color = QColor('gray')
-            if original_symbol and hasattr(original_symbol, 'color'):
-                try:
-                    color = original_symbol.color()
-                except:
-                    pass
-            
-            # Por ahora retornamos información básica
-            # En una implementación completa, aquí crearíamos un símbolo simple
-            return {
-                'type': 'fallback',
-                'color': color,
-                'is_clone': True,
-                'original_available': False
-            }
-            
-        except Exception as e:
-            self.debug_print(f"Error creating fallback symbol: {e}")
             return None
     
-    def _pre_render_symbol_image(self, symbol, symbol_id: str = None) -> Optional[QImage]:
+    def _extract_primitive_symbol_data(self, symbol, symbol_id: str = None) -> Dict[str, Any]:
         """
-        Pre-renderiza símbolo a imagen para uso thread-safe
+        Extrae datos primitivos del símbolo SIN renderizar
         
-        Las imágenes QImage son thread-safe una vez creadas, a diferencia
-        de los símbolos QGIS que mantienen referencias internas no thread-safe.
+        Beta 25: SOLO propiedades simples como enteros, strings, tuplas.
+        NO .asImage(), NO .drawPreviewIcon(), NO QgsRenderContext.
         """
+        primitive_data = {}
+        
         if not symbol:
-            return None
+            return primitive_data
             
         try:
             with QMutexLocker(self._symbol_mutex):
-                cache_key = symbol_id or f"image_{id(symbol)}"
+                cache_key = symbol_id or f"primitive_{id(symbol)}"
                 
-                # Verificar cache de imágenes
-                if cache_key in self._image_cache:
-                    cached_image = self._image_cache[cache_key]
-                    if cached_image and not cached_image.isNull():
-                        self.debug_print(f"Using cached image for {cache_key}")
-                        return cached_image
+                # Verificar cache
+                if cache_key in self._primitive_cache:
+                    return self._primitive_cache[cache_key]
                 
-                # Renderizar símbolo a imagen
-                self.debug_print(f"Pre-rendering symbol to thread-safe image: {cache_key}")
+                self.debug_print(f"Extracting primitive data for symbol: {cache_key}")
                 
-                render_context = self._create_safe_render_context()
-                if not render_context:
-                    self.debug_print("Failed to create render context")
-                    return None
+                # Extraer propiedades básicas como datos primitivos
+                if hasattr(symbol, 'color'):
+                    try:
+                        color = symbol.color()
+                        primitive_data['color_rgba'] = color.rgba()  # Entero RGBA
+                        primitive_data['color_name'] = color.name()  # String hex
+                    except:
+                        primitive_data['color_rgba'] = QColor('gray').rgba()
+                        primitive_data['color_name'] = '#808080'
                 
-                if hasattr(symbol, 'asImage'):
-                    # Método nativo de QGIS para convertir símbolo a imagen
-                    image = symbol.asImage(self._symbol_size, render_context)
-                    
-                    if image and not image.isNull():
-                        self._image_cache[cache_key] = image
-                        self.debug_print(f"Successfully pre-rendered symbol image: {cache_key}")
-                        return image
-                    else:
-                        self.debug_print(f"Symbol.asImage() returned null image")
+                if hasattr(symbol, 'type'):
+                    try:
+                        primitive_data['symbol_type'] = symbol.type()  # Entero
+                    except:
+                        primitive_data['symbol_type'] = 0
+                
+                if hasattr(symbol, 'size'):
+                    try:
+                        primitive_data['symbol_size'] = float(symbol.size())  # Float
+                    except:
+                        primitive_data['symbol_size'] = 2.0
+                
+                if hasattr(symbol, 'angle'):
+                    try:
+                        primitive_data['symbol_angle'] = float(symbol.angle())  # Float
+                    except:
+                        primitive_data['symbol_angle'] = 0.0
                         
-                else:
-                    self.debug_print(f"Symbol has no asImage method")
+                if hasattr(symbol, 'opacity'):
+                    try:
+                        primitive_data['symbol_opacity'] = float(symbol.opacity())  # Float
+                    except:
+                        primitive_data['symbol_opacity'] = 1.0
                 
-                return None
+                # Agregar información de disponibilidad de métodos
+                primitive_data['has_clone_method'] = hasattr(symbol, 'clone')
+                primitive_data['has_copy_method'] = hasattr(symbol, 'copy')
+                primitive_data['extraction_time'] = self._last_extraction_time
+                
+                # Guardar en cache
+                self._primitive_cache[cache_key] = primitive_data
+                
+                self.debug_print(f"Extracted primitive data: {primitive_data}")
+                return primitive_data
                 
         except Exception as e:
-            self.debug_print(f"Error pre-rendering symbol image: {e}")
-            return None
+            self.debug_print(f"Error extracting primitive symbol data: {e}")
+            return {
+                'color_rgba': QColor('gray').rgba(),
+                'color_name': '#808080',
+                'symbol_type': 0,
+                'symbol_size': 2.0,
+                'symbol_angle': 0.0,
+                'symbol_opacity': 1.0,
+                'has_clone_method': False,
+                'has_copy_method': False,
+                'extraction_failed': True
+            }
     
     def clear_symbol_cache(self):
-        """Limpiar cache de símbolos clonados e imágenes"""
+        """Limpiar cache de símbolos clonados y datos primitivos"""
         try:
             with QMutexLocker(self._symbol_mutex):
                 self._clone_cache.clear()
-                self._image_cache.clear()
+                self._primitive_cache.clear()
                 self.debug_print("Symbol cache cleared")
         except Exception as e:
             self.debug_print(f"Error clearing symbol cache: {e}")
+    
+    def get_cache_stats(self) -> Dict[str, int]:
+        """Obtener estadísticas del cache para debugging"""
+        try:
+            with QMutexLocker(self._symbol_mutex):
+                return {
+                    'clone_cache_size': len(self._clone_cache),
+                    'primitive_cache_size': len(self._primitive_cache)
+                }
+        except:
+            return {'clone_cache_size': 0, 'primitive_cache_size': 0}
     
     def extract_legend_data(self, visible_only: bool = True) -> List[LayerSymbolInfo]:
         """Extraer datos de leyenda de manera segura"""
@@ -349,30 +352,29 @@ class SymbolDataExtractor:
         return symbols
     
     def _extract_single_symbol(self, renderer, layer_name: str) -> List[Dict]:
-        """Extraer símbolo único con protección phantom pointer"""
+        """Extraer símbolo único SIN renderizado - Solo datos primitivos"""
         symbols = []
         try:
             if hasattr(renderer, 'symbol') and renderer.symbol():
                 original_symbol = renderer.symbol()
                 
-                # Beta 24: Clonación segura del símbolo
+                # Beta 25: Clonación Y extracción de datos primitivos - NO RENDERIZADO
                 symbol_id = f"single_{layer_name}_{id(original_symbol)}"
                 cloned_symbol = self._clone_symbol_safely(original_symbol, symbol_id)
-                symbol_image = self._pre_render_symbol_image(original_symbol, symbol_id)
-                
-                color = self._get_symbol_color(original_symbol)
+                primitive_data = self._extract_primitive_symbol_data(original_symbol, symbol_id)
                 
                 symbols.append({
                     'label': layer_name,
                     'type': 'single',
-                    'color': color,
-                    'symbol': cloned_symbol,  # Símbolo clonado seguro
-                    'symbol_image': symbol_image,  # Imagen pre-renderizada
+                    'color': QColor.fromRgba(primitive_data.get('color_rgba', QColor('gray').rgba())),
+                    'symbol': cloned_symbol,  # Símbolo clonado para uso posterior en main thread
+                    'primitive_data': primitive_data,  # Datos primitivos seguros
                     'original_symbol_id': symbol_id,
-                    'is_thread_safe': True  # Marca de thread safety
+                    'needs_main_thread_rendering': True,  # Bandera para main thread
+                    'is_worker_safe': True  # Solo datos seguros
                 })
                 
-                self.debug_print(f"Safely extracted single symbol for {layer_name}")
+                self.debug_print(f"Safely extracted single symbol data for {layer_name}")
                 
         except Exception as e:
             self.debug_print(f"Error extracting single symbol: {e}")
@@ -380,7 +382,7 @@ class SymbolDataExtractor:
         return symbols
     
     def _extract_categorized_symbols(self, renderer, layer_name: str) -> List[Dict]:
-        """Extraer símbolos categorizados con protección phantom pointer"""
+        """Extraer símbolos categorizados SIN renderizado - Solo datos primitivos"""
         symbols = []
         try:
             if hasattr(renderer, 'categories'):
@@ -389,29 +391,28 @@ class SymbolDataExtractor:
                         original_symbol = category.symbol()
                         label = category.label() or category.value()
                         
-                        # Beta 24: Clonación segura del símbolo
+                        # Beta 25: Clonación Y extracción de datos primitivos - NO RENDERIZADO
                         symbol_id = f"cat_{layer_name}_{i}_{id(original_symbol)}"
                         cloned_symbol = self._clone_symbol_safely(original_symbol, symbol_id)
-                        symbol_image = self._pre_render_symbol_image(original_symbol, symbol_id)
-                        
-                        color = self._get_symbol_color(original_symbol)
+                        primitive_data = self._extract_primitive_symbol_data(original_symbol, symbol_id)
                         
                         symbols.append({
                             'label': f"{layer_name}: {label}",
                             'type': 'categorized',
-                            'color': color,
-                            'symbol': cloned_symbol,  # Símbolo clonado seguro
-                            'symbol_image': symbol_image,  # Imagen pre-renderizada
+                            'color': QColor.fromRgba(primitive_data.get('color_rgba', QColor('gray').rgba())),
+                            'symbol': cloned_symbol,  # Símbolo clonado para uso posterior en main thread
+                            'primitive_data': primitive_data,  # Datos primitivos seguros
                             'category_value': category.value(),
                             'original_symbol_id': symbol_id,
-                            'is_thread_safe': True
+                            'needs_main_thread_rendering': True,  # Bandera para main thread
+                            'is_worker_safe': True  # Solo datos seguros
                         })
                         
                     except Exception as e:
                         self.debug_print(f"Error processing category {i}: {e}")
                         continue
                         
-                self.debug_print(f"Safely extracted {len(symbols)} categorized symbols for {layer_name}")
+                self.debug_print(f"Safely extracted {len(symbols)} categorized symbols data for {layer_name}")
                 
         except Exception as e:
             self.debug_print(f"Error extracting categorized symbols: {e}")
@@ -419,7 +420,7 @@ class SymbolDataExtractor:
         return symbols
     
     def _extract_graduated_symbols(self, renderer, layer_name: str) -> List[Dict]:
-        """Extraer símbolos graduados con protección phantom pointer"""
+        """Extraer símbolos graduados SIN renderizado - Solo datos primitivos"""
         symbols = []
         try:
             if hasattr(renderer, 'ranges'):
@@ -428,30 +429,29 @@ class SymbolDataExtractor:
                         original_symbol = range_item.symbol()
                         label = range_item.label()
                         
-                        # Beta 24: Clonación segura del símbolo
+                        # Beta 25: Clonación Y extracción de datos primitivos - NO RENDERIZADO
                         symbol_id = f"grad_{layer_name}_{i}_{id(original_symbol)}"
                         cloned_symbol = self._clone_symbol_safely(original_symbol, symbol_id)
-                        symbol_image = self._pre_render_symbol_image(original_symbol, symbol_id)
-                        
-                        color = self._get_symbol_color(original_symbol)
+                        primitive_data = self._extract_primitive_symbol_data(original_symbol, symbol_id)
                         
                         symbols.append({
                             'label': f"{layer_name}: {label}",
                             'type': 'graduated',
-                            'color': color,
-                            'symbol': cloned_symbol,  # Símbolo clonado seguro
-                            'symbol_image': symbol_image,  # Imagen pre-renderizada
+                            'color': QColor.fromRgba(primitive_data.get('color_rgba', QColor('gray').rgba())),
+                            'symbol': cloned_symbol,  # Símbolo clonado para uso posterior en main thread
+                            'primitive_data': primitive_data,  # Datos primitivos seguros
                             'range_min': range_item.lowerValue(),
                             'range_max': range_item.upperValue(),
                             'original_symbol_id': symbol_id,
-                            'is_thread_safe': True
+                            'needs_main_thread_rendering': True,  # Bandera para main thread
+                            'is_worker_safe': True  # Solo datos seguros
                         })
                         
                     except Exception as e:
                         self.debug_print(f"Error processing range {i}: {e}")
                         continue
                         
-                self.debug_print(f"Safely extracted {len(symbols)} graduated symbols for {layer_name}")
+                self.debug_print(f"Safely extracted {len(symbols)} graduated symbols data for {layer_name}")
                 
         except Exception as e:
             self.debug_print(f"Error extracting graduated symbols: {e}")
@@ -472,29 +472,28 @@ class SymbolDataExtractor:
         return symbols
     
     def _extract_rule_symbols_recursive(self, rule, layer_name: str, symbols: List[Dict], rule_index: int = 0):
-        """Extraer símbolos de reglas recursivamente con protección phantom pointer"""
+        """Extraer símbolos de reglas recursivamente SIN renderizado - Solo datos primitivos"""
         try:
             # Procesar regla actual
             if rule.symbol():
                 original_symbol = rule.symbol()
                 label = rule.label() or rule.filterExpression()
                 
-                # Beta 24: Clonación segura del símbolo
+                # Beta 25: Clonación Y extracción de datos primitivos - NO RENDERIZADO
                 symbol_id = f"rule_{layer_name}_{rule_index}_{id(original_symbol)}"
                 cloned_symbol = self._clone_symbol_safely(original_symbol, symbol_id)
-                symbol_image = self._pre_render_symbol_image(original_symbol, symbol_id)
-                
-                color = self._get_symbol_color(original_symbol)
+                primitive_data = self._extract_primitive_symbol_data(original_symbol, symbol_id)
                 
                 symbols.append({
                     'label': f"{layer_name}: {label}",
                     'type': 'rule',
-                    'color': color,
-                    'symbol': cloned_symbol,  # Símbolo clonado seguro
-                    'symbol_image': symbol_image,  # Imagen pre-renderizada
+                    'color': QColor.fromRgba(primitive_data.get('color_rgba', QColor('gray').rgba())),
+                    'symbol': cloned_symbol,  # Símbolo clonado para uso posterior en main thread
+                    'primitive_data': primitive_data,  # Datos primitivos seguros
                     'rule_filter': rule.filterExpression(),
                     'original_symbol_id': symbol_id,
-                    'is_thread_safe': True
+                    'needs_main_thread_rendering': True,  # Bandera para main thread
+                    'is_worker_safe': True  # Solo datos seguros
                 })
             
             # Procesar reglas hijas
@@ -510,28 +509,27 @@ class SymbolDataExtractor:
             self.debug_print(f"Error processing rule {rule_index}: {e}")
     
     def _extract_fallback_symbol(self, renderer, layer_name: str) -> List[Dict]:
-        """Extraer símbolo de fallback con protección phantom pointer"""
+        """Extraer símbolo de fallback SIN renderizado - Solo datos primitivos"""
         symbols = []
         try:
             original_symbol = None
             if hasattr(renderer, 'symbol') and renderer.symbol():
                 original_symbol = renderer.symbol()
             
-            # Beta 24: Clonación segura del símbolo
+            # Beta 25: Clonación Y extracción de datos primitivos - NO RENDERIZADO
             symbol_id = f"fallback_{layer_name}_{id(original_symbol) if original_symbol else 'none'}"
             cloned_symbol = self._clone_symbol_safely(original_symbol, symbol_id) if original_symbol else None
-            symbol_image = self._pre_render_symbol_image(original_symbol, symbol_id) if original_symbol else None
-            
-            color = self._get_symbol_color(original_symbol) if original_symbol else QColor('gray')
+            primitive_data = self._extract_primitive_symbol_data(original_symbol, symbol_id) if original_symbol else {}
             
             symbols.append({
                 'label': layer_name,
                 'type': 'fallback',
-                'color': color,
-                'symbol': cloned_symbol,  # Símbolo clonado seguro o None
-                'symbol_image': symbol_image,  # Imagen pre-renderizada o None
+                'color': QColor.fromRgba(primitive_data.get('color_rgba', QColor('gray').rgba())),
+                'symbol': cloned_symbol,  # Símbolo clonado para uso posterior en main thread o None
+                'primitive_data': primitive_data,  # Datos primitivos seguros
                 'original_symbol_id': symbol_id,
-                'is_thread_safe': True
+                'needs_main_thread_rendering': True,  # Bandera para main thread
+                'is_worker_safe': True  # Solo datos seguros
             })
             
         except Exception as e:
@@ -541,45 +539,47 @@ class SymbolDataExtractor:
     
     def verify_symbol_thread_safety(self, symbol_data: Dict) -> bool:
         """
-        Verificar que los datos de símbolo son seguros para uso en worker threads
+        Verificar que los datos de símbolo son seguros para uso en worker threads - Beta 25
         
-        Verifica que tenemos símbolos clonados o imágenes pre-renderizadas
-        disponibles para evitar phantom pointer access.
+        Verifica que tenemos datos primitivos seguros y símbolos clonados
+        sin dependencias de renderizado en worker threads.
         """
         try:
-            # Verificar marca de thread safety
-            if not symbol_data.get('is_thread_safe', False):
-                self.debug_print("Symbol data not marked as thread-safe")
+            # Verificar marca de worker safety
+            if not symbol_data.get('is_worker_safe', False):
+                self.debug_print("Symbol data not marked as worker-safe")
                 return False
             
-            # Verificar que tenemos al menos una representación segura
+            # Verificar que tenemos datos primitivos
+            has_primitive_data = symbol_data.get('primitive_data') is not None
             has_clone = symbol_data.get('symbol') is not None
-            has_image = symbol_data.get('symbol_image') is not None
             
-            if not has_clone and not has_image:
-                self.debug_print("Symbol data has no safe representation (no clone or image)")
+            if not has_primitive_data:
+                self.debug_print("Symbol data has no primitive data for worker thread")
                 return False
             
             # Verificar integridad del símbolo clonado si existe
             if has_clone:
                 cloned_symbol = symbol_data.get('symbol')
                 if hasattr(cloned_symbol, 'type'):
-                    # Intentar acceso básico para verificar validez
+                    # Intentar acceso básico para verificar validez (sin renderizado)
                     try:
                         _ = cloned_symbol.type()
                     except:
                         self.debug_print("Cloned symbol appears to be invalid")
                         return False
             
-            # Verificar integridad de la imagen si existe
-            if has_image:
-                image = symbol_data.get('symbol_image')
-                if hasattr(image, 'isNull') and image.isNull():
-                    self.debug_print("Pre-rendered image is null")
-                    # No es fatal si tenemos clone
-                    if not has_clone:
-                        return False
+            # Verificar que NO hay rendering requirements en worker thread
+            needs_main_thread = symbol_data.get('needs_main_thread_rendering', False)
+            if not needs_main_thread:
+                self.debug_print("Warning: Symbol should require main thread rendering in Beta 25")
             
+            # Verificar integridad de datos primitivos
+            primitive_data = symbol_data.get('primitive_data', {})
+            if not isinstance(primitive_data, dict):
+                self.debug_print("Primitive data is not a valid dictionary")
+                return False
+                
             return True
             
         except Exception as e:

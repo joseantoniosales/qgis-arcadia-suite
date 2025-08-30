@@ -1,7 +1,7 @@
 """
 Dialog for configuring canvas legend overlay
-BETA 25 ULTIMA BALA - Complete rendering separation solution
-Implements complete separation: worker threads extract primitive data, main thread handles all rendering
+BETA 26 "ESPERAR, VERIFICAR Y ACTUAR" - Ultimate Stability Strategy
+Implements professional-grade debounce + stability verification + delayed action pattern
 """
 
 from qgis.PyQt.QtCore import Qt, pyqtSignal, QTimer, QRect, QPointF, QSize, QThread, QObject, QMutex, QMutexLocker
@@ -21,17 +21,17 @@ import os
 from ..utils import get_arcadia_setting, set_arcadia_setting
 
 # PLUGIN VERSION CONTROL - Single source of truth
-PLUGIN_VERSION = "1.0.25"
-PLUGIN_VERSION_NAME = "Beta 25"
+PLUGIN_VERSION = "1.0.26"
+PLUGIN_VERSION_NAME = "Beta 26"
 
-# BETA 25: Import rendering separation modules
+# BETA 26: Import debounce and stability verification modules
 try:
     from ..tools.symbol_cache_manager import SymbolCacheManager
     from ..tools.symbol_data_extractor import SymbolDataExtractor, LayerSymbolInfo
-    BETA25_MODULES_AVAILABLE = True
+    BETA26_MODULES_AVAILABLE = True
 except ImportError as e:
-    print(f"BETA 25: Failed to import new modules: {e}")
-    BETA25_MODULES_AVAILABLE = False
+    print(f"BETA 26: Failed to import new modules: {e}")
+    BETA26_MODULES_AVAILABLE = False
 
 
 # BETA 23: Layer Stability Verification System
@@ -96,6 +96,121 @@ class LayerStabilityChecker(QObject):
             # Otherwise, keep checking
 
 
+# BETA 26: Professional Debounce + Stability Verification System
+class QGISChangeDebouncer(QObject):
+    """
+    Professional-grade change debouncer that waits for QGIS "storm" to settle
+    
+    Ignores rapid signal bursts and only triggers action after silence period.
+    This prevents immediate reactions that cause crashes during QGIS operations.
+    """
+    stability_verified = pyqtSignal()  # Fired when QGIS is stable and ready
+    
+    def __init__(self, debounce_delay_ms=500, parent=None):
+        super().__init__(parent)
+        self.debounce_delay_ms = debounce_delay_ms
+        
+        # Debounce timer - resets on every signal
+        self.debounce_timer = QTimer()
+        self.debounce_timer.setSingleShot(True)
+        self.debounce_timer.timeout.connect(self._start_stability_verification)
+        
+        print(f"[Beta26] Debouncer initialized with {debounce_delay_ms}ms delay")
+    
+    def signal_received(self):
+        """Call this when ANY QGIS change signal is received"""
+        # Reset/restart the debounce timer
+        if self.debounce_timer.isActive():
+            self.debounce_timer.stop()
+        
+        self.debounce_timer.start(self.debounce_delay_ms)
+        print(f"[Beta26] Signal received - debounce timer reset")
+    
+    def _start_stability_verification(self):
+        """Called after debounce period - now verify QGIS stability"""
+        print(f"[Beta26] Debounce period complete - starting stability verification")
+        
+        # Create and start the stability checker
+        self.stability_checker = QGISStabilityChecker(parent=self)
+        self.stability_checker.qgis_stable.connect(self._on_qgis_stable)
+        self.stability_checker.start_checking()
+    
+    def _on_qgis_stable(self):
+        """Called when QGIS is confirmed stable"""
+        print(f"[Beta26] QGIS stability confirmed - triggering safe update")
+        self.stability_verified.emit()
+
+
+class QGISStabilityChecker(QObject):
+    """
+    Intelligent QGIS stability verifier using safe API polling
+    
+    Continuously checks if QGIS is "busy" by attempting safe API calls.
+    Only declares stability when multiple consecutive checks succeed.
+    """
+    qgis_stable = pyqtSignal()  # Fired when QGIS is confirmed stable
+    
+    def __init__(self, check_interval_ms=200, stability_threshold=3, parent=None):
+        super().__init__(parent)
+        self.check_interval_ms = check_interval_ms
+        self.stability_threshold = stability_threshold
+        self.consecutive_stable_checks = 0
+        
+        # Stability verification timer
+        self.stability_timer = QTimer()
+        self.stability_timer.timeout.connect(self._check_qgis_stability)
+        
+        print(f"[Beta26] Stability checker initialized - {check_interval_ms}ms intervals, {stability_threshold} consecutive checks required")
+    
+    def start_checking(self):
+        """Start the stability verification loop"""
+        self.consecutive_stable_checks = 0
+        self.stability_timer.start(self.check_interval_ms)
+        print(f"[Beta26] Stability checking started")
+    
+    def _check_qgis_stability(self):
+        """Attempt to safely query QGIS state"""
+        try:
+            # Safe API calls that will fail if QGIS is "busy"
+            project = QgsProject.instance()
+            if not project:
+                raise Exception("Project not available")
+            
+            layers = project.mapLayers()
+            if layers is None:
+                raise Exception("Layers not accessible")
+            
+            # Try to access each layer's basic properties
+            for layer_id, layer in layers.items():
+                if not layer:
+                    raise Exception(f"Layer {layer_id} not accessible")
+                
+                # Test basic layer access
+                _ = layer.name()
+                _ = layer.isValid()
+                
+                # Test renderer access (most likely to fail during style changes)
+                if hasattr(layer, 'renderer'):
+                    renderer = layer.renderer()
+                    if renderer:
+                        _ = renderer.type()
+            
+            # If we reach here, QGIS is stable
+            self.consecutive_stable_checks += 1
+            print(f"[Beta26] Stability check #{self.consecutive_stable_checks} passed")
+            
+            if self.consecutive_stable_checks >= self.stability_threshold:
+                # QGIS is confirmed stable!
+                self.stability_timer.stop()
+                print(f"[Beta26] QGIS confirmed stable after {self.consecutive_stable_checks} consecutive checks")
+                self.qgis_stable.emit()
+            
+        except Exception as e:
+            # QGIS is still "busy" - reset counter and continue checking
+            self.consecutive_stable_checks = 0
+            print(f"[Beta26] QGIS still busy: {e}")
+
+
 # BETA 25: Safe Symbol Processing Worker with Rendering Separation
 class SymbolProcessingWorker(QObject):
     """
@@ -113,7 +228,7 @@ class SymbolProcessingWorker(QObject):
         self.layer_ids_to_process = []
         
         # Beta 25: Symbol extractor with rendering separation
-        self.symbol_extractor = SymbolDataExtractor(debug_mode=True) if BETA25_MODULES_AVAILABLE else None
+        self.symbol_extractor = SymbolDataExtractor(debug_mode=True) if BETA26_MODULES_AVAILABLE else None
         self._processing_mutex = QMutex()
         
     def start_processing(self, layer_ids):
@@ -1125,8 +1240,8 @@ class CanvasLegendDockWidget(QDockWidget):
         self._style_safety_delay = 5000  # 5 segundos de espera tras cambios de estilo
         self._properties_dialog_open = False
         
-        # BETA 25: Initialize rendering separation components
-        self._initialize_beta25_components()
+        # BETA 26: Initialize debounce and stability verification components
+        self._initialize_beta26_components()
         
         # BETA 23: Initialize asynchronous stability verification system
         self._initialize_beta23_components()
@@ -1147,44 +1262,69 @@ class CanvasLegendDockWidget(QDockWidget):
         # Connect close event to cleanup
         self.closeEvent = self.custom_close_event
         
-    def _initialize_beta25_components(self):
-        """Initialize Beta 25 rendering separation components"""
+    def _initialize_beta26_components(self):
+        """Initialize Beta 26 debounce and stability verification system"""
         try:
-            if BETA25_MODULES_AVAILABLE:
-                print("[Beta25] Initializing rendering separation components...")
-                
-                # Initialize symbol cache manager
+            print("[Beta26] Initializing professional debounce + stability verification system...")
+            
+            # Beta 26: Initialize the debouncer (500ms delay)
+            self._change_debouncer = QGISChangeDebouncer(debounce_delay_ms=500, parent=self)
+            self._change_debouncer.stability_verified.connect(self._on_stable_update_ready)
+            
+            # Initialize the old components for fallback
+            if BETA26_MODULES_AVAILABLE:
                 self._symbol_cache = SymbolCacheManager(max_cache_size=1000)
                 self._symbol_cache.cache_updated.connect(self._on_symbol_cache_updated)
-                
-                # Initialize symbol data extractor with rendering separation
                 self._symbol_extractor = SymbolDataExtractor(debug_mode=True)
-                
-                # Initialize rendering separation mutex
-                self._rendering_separation_mutex = QMutex()
-                
-                # Beta 25: Initialize main thread rendering components
-                self._main_thread_render_context = None
-                self._pending_symbols_for_rendering = []
-                
-                print("[Beta25] Rendering separation components initialized successfully")
-                
             else:
-                print("[Beta25] Modules not available, using fallback")
                 self._symbol_cache = None
                 self._symbol_extractor = None
-                self._rendering_separation_mutex = QMutex()
-                self._main_thread_render_context = None
-                self._pending_symbols_for_rendering = []
-                
+            
+            # Beta 26: Track if we're in the middle of an update cycle
+            self._update_in_progress = False
+            
+            print("[Beta26] Debounce + stability verification system initialized successfully")
+            
         except Exception as e:
-            print(f"[Beta25] Failed to initialize components: {e}")
+            print(f"[Beta26] Failed to initialize debounce system: {e}")
+            self._change_debouncer = None
             self._symbol_cache = None
             self._symbol_extractor = None
-            self._rendering_separation_mutex = QMutex()
-            self._main_thread_render_context = None
-            self._pending_symbols_for_rendering = []
-            self.debug_print(f"BETA 25: Failed to initialize rendering separation components: {e}")
+            self._update_in_progress = False
+            import traceback
+            traceback.print_exc()
+    
+    def _on_stable_update_ready(self):
+        """Called when debouncer confirms QGIS is stable and ready for safe update"""
+        if self._update_in_progress:
+            print("[Beta26] Update already in progress, skipping...")
+            return
+        
+        print("[Beta26] QGIS confirmed stable - performing safe legend update")
+        self._update_in_progress = True
+        
+        try:
+            # Perform the safe update in main thread
+            self._perform_safe_legend_update()
+        finally:
+            self._update_in_progress = False
+    
+    def _perform_safe_legend_update(self):
+        """Perform legend update safely when QGIS is confirmed stable"""
+        try:
+            print("[Beta26] Starting safe legend update...")
+            
+            # Exit hibernation if needed
+            if self._legend_in_hibernation:
+                self._exit_hibernation_mode()
+            else:
+                # Apply legend normally since QGIS is stable
+                self.apply_legend()
+                
+            print("[Beta26] Safe legend update completed successfully")
+            
+        except Exception as e:
+            print(f"[Beta26] Error during safe legend update: {e}")
             import traceback
             traceback.print_exc()
     
@@ -1444,38 +1584,62 @@ class CanvasLegendDockWidget(QDockWidget):
             print(message)
         
     def connect_layer_signals(self):
-        """Connect signals to detect layer changes"""
+        """Connect signals to detect layer changes - BETA 26: All signals go through debouncer"""
         try:
-            # Connect to layer tree changes
-            root = QgsProject.instance().layerTreeRoot()
-            root.visibilityChanged.connect(self.on_layer_visibility_changed)
-            
-            # Connect to project signals for layer addition/removal
-            QgsProject.instance().layersAdded.connect(self.on_layers_changed)
-            QgsProject.instance().layersRemoved.connect(self.on_layers_changed)
-            
-            # CRITICAL: Connect to layer style changes to detect symbology changes
-            QgsProject.instance().layerStyleChanged.connect(self.on_layer_style_changed)
-            
-            # Additional signals for comprehensive detection
-            QgsProject.instance().legendLayersAdded.connect(self.on_layers_changed)
-            
-            # Connect to each existing layer's signals for style changes
-            self.connect_existing_layer_signals()
+            # BETA 26: Connect all signals to debouncer instead of direct handlers
+            if hasattr(self, '_change_debouncer'):
+                # Connect to layer tree changes through debouncer
+                root = QgsProject.instance().layerTreeRoot()
+                root.visibilityChanged.connect(self._change_debouncer.signal_received)
+                
+                # Connect to project signals for layer addition/removal through debouncer
+                QgsProject.instance().layersAdded.connect(self._change_debouncer.signal_received)
+                QgsProject.instance().layersRemoved.connect(self._change_debouncer.signal_received)
+                
+                # CRITICAL: Connect to layer style changes through debouncer
+                QgsProject.instance().layerStyleChanged.connect(self._change_debouncer.signal_received)
+                
+                # Additional signals for comprehensive detection through debouncer
+                QgsProject.instance().legendLayersAdded.connect(self._change_debouncer.signal_received)
+                
+                # Connect to each existing layer's signals through debouncer
+                self.connect_existing_layer_signals()
+                
+                self.debug_print("BETA 26: All QGIS signals connected through debouncer")
+            else:
+                self.debug_print("BETA 26: Warning - debouncer not initialized, falling back to direct connections")
+                # Fallback to old connections if debouncer not available
+                root = QgsProject.instance().layerTreeRoot()
+                root.visibilityChanged.connect(self.on_layer_visibility_changed)
+                QgsProject.instance().layersAdded.connect(self.on_layers_changed)
+                QgsProject.instance().layersRemoved.connect(self.on_layers_changed)
+                QgsProject.instance().layerStyleChanged.connect(self.on_layer_style_changed)
+                QgsProject.instance().legendLayersAdded.connect(self.on_layers_changed)
+                self.connect_existing_layer_signals()
             
         except Exception as e:
-            self.debug_print(f"Error connecting layer signals: {e}")
+            self.debug_print(f"BETA 26: Error connecting layer signals: {e}")
             
     def connect_existing_layer_signals(self):
-        """Connect to existing layers' individual signals"""
+        """Connect to existing layers' individual signals - BETA 26: Through debouncer"""
         try:
-            for layer in QgsProject.instance().mapLayers().values():
-                if hasattr(layer, 'rendererChanged'):
-                    layer.rendererChanged.connect(self.on_renderer_changed)
-                if hasattr(layer, 'styleChanged'):
-                    layer.styleChanged.connect(self.on_renderer_changed)
+            if hasattr(self, '_change_debouncer'):
+                # BETA 26: Connect existing layer signals through debouncer
+                for layer in QgsProject.instance().mapLayers().values():
+                    if hasattr(layer, 'rendererChanged'):
+                        layer.rendererChanged.connect(self._change_debouncer.signal_received)
+                    if hasattr(layer, 'styleChanged'):
+                        layer.styleChanged.connect(self._change_debouncer.signal_received)
+                self.debug_print("BETA 26: Existing layer signals connected through debouncer")
+            else:
+                # Fallback to direct connections
+                for layer in QgsProject.instance().mapLayers().values():
+                    if hasattr(layer, 'rendererChanged'):
+                        layer.rendererChanged.connect(self.on_renderer_changed)
+                    if hasattr(layer, 'styleChanged'):
+                        layer.styleChanged.connect(self.on_renderer_changed)
         except Exception as e:
-            self.debug_print(f"Error connecting existing layer signals: {e}")
+            self.debug_print(f"BETA 26: Error connecting existing layer signals: {e}")
             
     def on_renderer_changed(self):
         """Handle renderer/symbology changes - BETA 23: Asynchronous stability verification"""

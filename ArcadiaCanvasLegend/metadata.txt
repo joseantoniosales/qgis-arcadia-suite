@@ -2,7 +2,7 @@
 name=ArcadiaCanvasLegend
 qgisMinimumVersion=3.22
 description=Canvas Legend Overlay - Part of Arcadia Suite. Display customizable legends overlaid on the QGIS canvas with full style control and export capabilities.
-version=1.0.25
+version=1.0.26
 author=Arcadia Suite Development Team
 email=info@arcadiasuite.com
 about=This plugin allows users to display and configure map legends overlay on the QGIS canvas. Features include position and style configuration, text formatting options, background and frame customization, canvas-to-composition conversion, and export to clipboard or PNG. Part of the comprehensive Arcadia Suite for QGIS.
@@ -17,6 +17,17 @@ experimental=False
 deprecated=False
 server=False
 changelog=
+    1.0.26: BETA 26 - "ESPERAR, VERIFICAR Y ACTUAR" Professional Signal Handling with Debounce + Stability Verification
+    - Revolutionary paradigm shift from "immediate signal reaction" to professional debounce + stability verification patterns
+    - Implemented QGISChangeDebouncer class with intelligent 500ms debounce timing to prevent signal storms
+    - Added QGISStabilityChecker with 200ms polling intervals and 3 consecutive stability checks before action
+    - All QGIS signals (layerStyleChanged, visibilityChanged, layersAdded/Removed) now routed through debouncer
+    - Professional signal handling patterns used by commercial QGIS plugins for enterprise stability
+    - "Wait for signal storm to settle, verify QGIS is stable, then act safely" - architectural principle
+    - Eliminated root cause: immediate reactions to volatile QGIS signals during internal state changes
+    - Debounce prevents overlapping updates during rapid style/layer changes
+    - Stability verification ensures QGIS has finished internal processing before legend updates
+    - Final solution: intelligent timing replaces technical fixes for ultimate crash elimination
     1.0.25: BETA 25 - "ÚLTIMA BALA" Complete Rendering Separation Solution
     - Implemented complete separation: worker threads extract ONLY primitive data, main thread handles ALL rendering
     - Eliminated QgsRenderContext contamination by preventing any .asImage() calls in worker threads

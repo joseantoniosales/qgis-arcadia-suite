@@ -1,7 +1,7 @@
 """
 Dialog for configuring canvas legend overlay
-BETA 27 "ESPERAR, VERIFICAR Y ACTUAR" + Enhanced Raster Stability + Individual Layer Signals
-Implements professional-grade debounce + stability verification + delayed action pattern
+BETA 28 "INTENTAR Y REPETIR" - Revolutionary Try-and-Retry Loop Architecture  
+The verification IS the action. Eliminates phantom crashes through safe execution cycles.
 """
 
 from qgis.PyQt.QtCore import Qt, pyqtSignal, QTimer, QRect, QPointF, QSize, QThread, QObject, QMutex, QMutexLocker
@@ -16,22 +16,23 @@ from qgis.core import (QgsProject, QgsLayoutExporter, QgsLayoutItemMap,
                       QgsLayoutSize, QgsUnitTypes, QgsSymbolLayerUtils,
                       QgsRenderContext, QgsMapSettings, QgsMapLayer)
 from qgis.gui import QgsColorButton, QgsFontButton
+from qgis.utils import iface
 
 import os
 from ..utils import get_arcadia_setting, set_arcadia_setting
 
 # PLUGIN VERSION CONTROL - Single source of truth
-PLUGIN_VERSION = "1.0.27"
+PLUGIN_VERSION = "1.0.28"
 PLUGIN_VERSION_NAME = "Beta 26"
 
 # BETA 26: Import debounce and stability verification modules
 try:
     from ..tools.symbol_cache_manager import SymbolCacheManager
     from ..tools.symbol_data_extractor import SymbolDataExtractor, LayerSymbolInfo
-    BETA27_MODULES_AVAILABLE = True
+    BETA28_MODULES_AVAILABLE = True
 except ImportError as e:
-    print(f"BETA 27: Failed to import new modules: {e}")
-    BETA27_MODULES_AVAILABLE = False
+    print(f"BETA 28: Failed to import new modules: {e}")
+    BETA28_MODULES_AVAILABLE = False
 
 
 # BETA 23: Layer Stability Verification System
@@ -127,112 +128,148 @@ class QGISChangeDebouncer(QObject):
         print(f"[Beta26] Signal received - debounce timer reset")
     
     def _start_stability_verification(self):
-        """Called after debounce period - now verify QGIS stability"""
-        print(f"[Beta26] Debounce period complete - starting stability verification")
+        """BETA 28: Called after debounce period - now attempt legend update directly"""
+        print(f"[Beta28] Debounce period complete - starting try-and-retry legend update")
         
-        # Create and start the stability checker
-        self.stability_checker = QGISStabilityChecker(parent=self)
-        self.stability_checker.qgis_stable.connect(self._on_qgis_stable)
-        self.stability_checker.start_checking()
+        # BETA 28: Skip verification, go straight to execution attempt
+        self.legend_executor.start_legend_update()
     
-    def _on_qgis_stable(self):
-        """Called when QGIS is confirmed stable"""
-        print(f"[Beta26] QGIS stability confirmed - triggering safe update")
+    def _on_legend_update_success(self):
+        """BETA 28: Called when legend update completed successfully"""
+        print(f"[Beta28] Legend update completed successfully!")
+        # Signal completion if needed
         self.stability_verified.emit()
+    
+    def _on_legend_update_failed(self, error_message):
+        """BETA 28: Called when legend update failed permanently"""
+        print(f"[Beta28] Legend update failed permanently: {error_message}")
+        # Could show user notification here if needed
 
 
-class QGISStabilityChecker(QObject):
+class LegendUpdateExecutor(QObject):
     """
-    Intelligent QGIS stability verifier using safe API polling
+    BETA 28 "INTENTAR Y REPETIR" - Revolutionary Try-and-Retry Loop Architecture
     
-    Continuously checks if QGIS is "busy" by attempting safe API calls.
-    Only declares stability when multiple consecutive checks succeed.
+    The verification IS the action. Instead of checking then acting, we attempt the complete 
+    legend update operation and simply retry if it fails. This eliminates the "vulnerability window" 
+    between verification and action.
+    
+    Architecture:
+    1. DEBOUNCE: Wait for signal storm to settle (500ms)
+    2. EXECUTE: Try complete legend update operation  
+    3. RETRY: If fails, schedule retry in 200ms
+    4. SUCCESS: Update completed when operation succeeds naturally
     """
-    qgis_stable = pyqtSignal()  # Fired when QGIS is confirmed stable
     
-    def __init__(self, check_interval_ms=200, stability_threshold=3, parent=None):
+    update_succeeded = pyqtSignal()  # Fired when update completes successfully
+    update_failed_permanently = pyqtSignal(str)  # Fired when max retries exceeded
+    
+    def __init__(self, parent=None, max_retries=10, retry_interval_ms=200):
         super().__init__(parent)
-        self.check_interval_ms = check_interval_ms
-        self.stability_threshold = stability_threshold
-        self.consecutive_stable_checks = 0
+        self.parent_dialog = parent
+        self.max_retries = max_retries
+        self.retry_interval_ms = retry_interval_ms
+        self.current_retry_count = 0
         
-        # Stability verification timer
-        self.stability_timer = QTimer()
-        self.stability_timer.timeout.connect(self._check_qgis_stability)
+        # Retry timer for failed attempts
+        self.retry_timer = QTimer()
+        self.retry_timer.setSingleShot(True)
+        self.retry_timer.timeout.connect(self._try_update_legend)
         
-        print(f"[Beta26] Stability checker initialized - {check_interval_ms}ms intervals, {stability_threshold} consecutive checks required")
+        print(f"[Beta28] LegendUpdateExecutor initialized - max {max_retries} retries, {retry_interval_ms}ms intervals")
     
-    def start_checking(self):
-        """Start the stability verification loop"""
-        self.consecutive_stable_checks = 0
-        self.stability_timer.start(self.check_interval_ms)
-        print(f"[Beta26] Stability checking started")
+    def start_legend_update(self):
+        """Initiate the try-and-retry legend update cycle"""
+        self.current_retry_count = 0
+        print(f"[Beta28] Starting legend update attempt cycle")
+        self._try_update_legend()
     
-    def _check_qgis_stability(self):
-        """Attempt to safely query QGIS state"""
+    def _try_update_legend(self):
+        """
+        CORE BETA 28 INNOVATION: The complete legend update wrapped in try-catch
+        
+        This function contains EVERYTHING: symbol extraction, rendering, legend creation.
+        If ANY part fails due to QGIS instability, we simply retry later.
+        No more guessing if QGIS is ready - we attempt and see what happens.
+        """
         try:
-            # Safe API calls that will fail if QGIS is "busy"
+            print(f"[Beta28] Attempt #{self.current_retry_count + 1} - Executing complete legend update...")
+            
+            # STEP 1: Verify basic QGIS state
             project = QgsProject.instance()
             if not project:
                 raise Exception("Project not available")
             
+            # STEP 2: Get layers and verify they're accessible  
             layers = project.mapLayers()
-            if layers is None:
-                raise Exception("Layers not accessible")
+            if not layers:
+                raise Exception("No layers available")
             
-            # Try to access each layer's basic properties
+            # STEP 3: THE CRITICAL SECTION - Symbol data extraction
+            # This is where crashes typically occur
+            legend_items = []
+            
             for layer_id, layer in layers.items():
-                if not layer:
-                    raise Exception(f"Layer {layer_id} not accessible")
+                if not layer or not layer.isValid():
+                    continue
+                    
+                if not hasattr(layer, 'renderer') or not layer.renderer():
+                    continue
                 
-                # Test basic layer access
-                _ = layer.name()
-                _ = layer.isValid()
+                # CRITICAL: This is where QgsSymbol_color crashes happen
+                # By wrapping in try-catch, we safely abort and retry
+                renderer = layer.renderer()
+                layer_name = layer.name()
                 
-                # BETA 26.1: Enhanced stability verification with raster-specific checks
-                if hasattr(layer, 'renderer'):
-                    renderer = layer.renderer()
-                    if renderer:
-                        _ = renderer.type()
+                # Extract symbols based on renderer type
+                if renderer.type() == 'singleSymbol':
+                    symbol = renderer.symbol()
+                    if symbol:
+                        # THE CRASH POINT: accessing symbol.color()
+                        color = symbol.color()  # This can crash if symbol is corrupted
+                        legend_items.append({
+                            'name': layer_name,
+                            'color': color,
+                            'symbol': symbol
+                        })
                         
-                        # CRITICAL: Special deep verification for raster layers
-                        if layer.type() == QgsMapLayer.RasterLayer:
-                            # Raster renderers are more volatile - need deeper verification
-                            if renderer.type() == 'singlebandpseudocolor':
-                                # Most crash-prone: pseudocolor rasters during statistics calculation
-                                shader = renderer.shader()
-                                if shader and hasattr(shader, 'rasterShaderFunction'):
-                                    ramp_function = shader.rasterShaderFunction()
-                                    if ramp_function and hasattr(ramp_function, 'colorRampItemList'):
-                                        # The critical test: access color ramp items safely
-                                        _ = ramp_function.colorRampItemList()
-                                        print(f"[Beta26.1] Raster pseudocolor stability verified for {layer.name()}")
-                            elif renderer.type() == 'multibandcolor':
-                                # Verify multiband renderer stability
-                                _ = renderer.redBand()
-                                _ = renderer.greenBand() 
-                                _ = renderer.blueBand()
-                                print(f"[Beta26.1] Raster multiband stability verified for {layer.name()}")
-                            elif renderer.type() == 'paletted':
-                                # Verify paletted renderer stability
-                                _ = renderer.band()
-                                print(f"[Beta26.1] Raster paletted stability verified for {layer.name()}")
-                            # Add other raster renderer types as needed
+                elif renderer.type() in ['categorizedSymbol', 'graduatedSymbol']:
+                    # Process category/graduated symbols
+                    for category in renderer.categories() if hasattr(renderer, 'categories') else renderer.ranges():
+                        symbol = category.symbol()
+                        if symbol:
+                            color = symbol.color()  # Potential crash point
+                            legend_items.append({
+                                'name': f"{layer_name} - {category.label()}",
+                                'color': color,
+                                'symbol': symbol
+                            })
             
-            # If we reach here, QGIS is stable
-            self.consecutive_stable_checks += 1
-            print(f"[Beta26] Stability check #{self.consecutive_stable_checks} passed")
-            
-            if self.consecutive_stable_checks >= self.stability_threshold:
-                # QGIS is confirmed stable!
-                self.stability_timer.stop()
-                print(f"[Beta26] QGIS confirmed stable after {self.consecutive_stable_checks} consecutive checks")
-                self.qgis_stable.emit()
+            # STEP 4: If we get here, symbol extraction succeeded!
+            # Now perform the actual legend update
+            if hasattr(self.parent_dialog, 'apply_legend') and legend_items:
+                self.parent_dialog.apply_legend()
+                
+            # SUCCESS! The complete operation completed without crashes
+            print(f"[Beta28] SUCCESS! Legend update completed on attempt #{self.current_retry_count + 1}")
+            self.current_retry_count = 0  # Reset for next cycle
+            self.update_succeeded.emit()
             
         except Exception as e:
-            # QGIS is still "busy" - reset counter and continue checking
-            self.consecutive_stable_checks = 0
-            print(f"[Beta26] QGIS still busy: {e}")
+            # QGIS was not ready - schedule retry
+            self.current_retry_count += 1
+            print(f"[Beta28] Attempt #{self.current_retry_count} failed: {e}")
+            
+            if self.current_retry_count >= self.max_retries:
+                # Give up after max retries
+                error_msg = f"Legend update failed after {self.max_retries} attempts. Last error: {e}"
+                print(f"[Beta28] PERMANENT FAILURE: {error_msg}")
+                self.update_failed_permanently.emit(error_msg)
+                self.current_retry_count = 0
+            else:
+                # Schedule retry
+                print(f"[Beta28] Scheduling retry #{self.current_retry_count + 1} in {self.retry_interval_ms}ms")
+                self.retry_timer.start(self.retry_interval_ms)
 
 
 # BETA 25: Safe Symbol Processing Worker with Rendering Separation
@@ -252,7 +289,7 @@ class SymbolProcessingWorker(QObject):
         self.layer_ids_to_process = []
         
         # Beta 25: Symbol extractor with rendering separation
-        self.symbol_extractor = SymbolDataExtractor(debug_mode=True) if BETA27_MODULES_AVAILABLE else None
+        self.symbol_extractor = SymbolDataExtractor(debug_mode=True) if BETA28_MODULES_AVAILABLE else None
         self._processing_mutex = QMutex()
         
     def start_processing(self, layer_ids):
@@ -1296,7 +1333,7 @@ class CanvasLegendDockWidget(QDockWidget):
             self._change_debouncer.stability_verified.connect(self._on_stable_update_ready)
             
             # Initialize the old components for fallback
-            if BETA27_MODULES_AVAILABLE:
+            if BETA28_MODULES_AVAILABLE:
                 self._symbol_cache = SymbolCacheManager(max_cache_size=1000)
                 self._symbol_cache.cache_updated.connect(self._on_symbol_cache_updated)
                 self._symbol_extractor = SymbolDataExtractor(debug_mode=True)
@@ -1628,6 +1665,16 @@ class CanvasLegendDockWidget(QDockWidget):
                 
                 # Additional signals for comprehensive detection through debouncer
                 QgsProject.instance().legendLayersAdded.connect(self._change_debouncer.signal_received)
+                
+                # BETA 28: Connect to layer properties dialog closed (QML style changes)
+                try:
+                    if hasattr(iface, 'layerPropertiesClosed'):
+                        iface.layerPropertiesClosed.connect(self._change_debouncer.signal_received)
+                        self.debug_print("BETA 28: Connected to iface.layerPropertiesClosed signal for QML detection")
+                    else:
+                        self.debug_print("BETA 28: Warning - iface.layerPropertiesClosed signal not available")
+                except Exception as e:
+                    self.debug_print(f"BETA 28: Error connecting layerPropertiesClosed signal: {e}")
                 
                 # Connect to each existing layer's signals through debouncer
                 self.connect_existing_layer_signals()

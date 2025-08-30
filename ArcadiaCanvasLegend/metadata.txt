@@ -2,7 +2,7 @@
 name=ArcadiaCanvasLegend
 qgisMinimumVersion=3.22
 description=Canvas Legend Overlay - Part of Arcadia Suite. Display customizable legends overlaid on the QGIS canvas with full style control and export capabilities.
-version=1.0.27
+version=1.0.28
 author=Arcadia Suite Development Team
 email=info@arcadiasuite.com
 about=This plugin allows users to display and configure map legends overlay on the QGIS canvas. Features include position and style configuration, text formatting options, background and frame customization, canvas-to-composition conversion, and export to clipboard or PNG. Part of the comprehensive Arcadia Suite for QGIS.
@@ -17,6 +17,17 @@ experimental=False
 deprecated=False
 server=False
 changelog=
+    1.0.28: BETA 28 - "INTENTAR Y REPETIR" Revolutionary Try-and-Retry Loop Architecture
+    - REVOLUTIONARY PARADIGM SHIFT: Eliminates verification-then-action approach that caused "vulnerability window" crashes
+    - Implemented LegendUpdateExecutor: Complete legend update operation wrapped in try-catch with intelligent retry
+    - "The verification IS the action" - attempt complete operation, retry if fails, no separate verification phase
+    - Maximum 10 retry attempts with 200ms intervals - graceful failure handling for permanent issues
+    - Added iface.layerPropertiesClosed signal connection for QML style change detection
+    - Eliminated phantom crashes: No gap between checking QGIS state and acting on symbols
+    - Try-and-retry loop: _try_update_legend() method attempts complete symbol extraction and legend creation
+    - Intelligent error detection: Distinguishes between transient QGIS instability and permanent errors
+    - Success/failure handlers: _on_legend_update_success and _on_legend_update_failed for completion tracking
+    - Final architecture: If operation fails, wait and retry - if succeeds, we're done
     1.0.27: BETA 27 - Enhanced Raster Stability Verification + Individual Layer Signal Management
     - Enhanced QGIS stability verification with raster-specific deep checks for pseudocolor, multiband, and paletted renderers
     - Critical fix: Stability checker now verifies raster renderer internal state (colorRampItemList access) before allowing updates

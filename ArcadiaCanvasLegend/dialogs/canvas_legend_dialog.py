@@ -1,7 +1,7 @@
 """
 Dialog for configuring canvas legend overlay
-BETA 28 "INTENTAR Y REPETIR" - Revolutionary Try-and-Retry Loop Architecture  
-The verification IS the action. Eliminates phantom crashes through safe execution cycles.
+BETA 29 "AISLAMIENTO Y SINCRONIZACIÓN" - Professional Signal-Based Architecture
+Corrects initialization bug + implements Qt signals/slots pattern for robust component communication.
 """
 
 from qgis.PyQt.QtCore import Qt, pyqtSignal, QTimer, QRect, QPointF, QSize, QThread, QObject, QMutex, QMutexLocker
@@ -22,17 +22,17 @@ import os
 from ..utils import get_arcadia_setting, set_arcadia_setting
 
 # PLUGIN VERSION CONTROL - Single source of truth
-PLUGIN_VERSION = "1.0.28"
-PLUGIN_VERSION_NAME = "Beta 26"
+PLUGIN_VERSION = "1.0.29"
+PLUGIN_VERSION_NAME = "BETA 29 - AISLAMIENTO Y SINCRONIZACIÓN"
 
-# BETA 26: Import debounce and stability verification modules
+# BETA 29: Import debounce and stability verification modules
 try:
     from ..tools.symbol_cache_manager import SymbolCacheManager
     from ..tools.symbol_data_extractor import SymbolDataExtractor, LayerSymbolInfo
-    BETA28_MODULES_AVAILABLE = True
+    BETA29_MODULES_AVAILABLE = True
 except ImportError as e:
-    print(f"BETA 28: Failed to import new modules: {e}")
-    BETA28_MODULES_AVAILABLE = False
+    print(f"BETA 29: Failed to import new modules: {e}")
+    BETA29_MODULES_AVAILABLE = False
 
 
 # BETA 23: Layer Stability Verification System
@@ -100,12 +100,13 @@ class LayerStabilityChecker(QObject):
 # BETA 26: Professional Debounce + Stability Verification System
 class QGISChangeDebouncer(QObject):
     """
-    Professional-grade change debouncer that waits for QGIS "storm" to settle
+    BETA 29: Professional-grade change debouncer with signal-based architecture
     
     Ignores rapid signal bursts and only triggers action after silence period.
-    This prevents immediate reactions that cause crashes during QGIS operations.
+    Uses Qt signals/slots pattern for clean component separation.
     """
-    stability_verified = pyqtSignal()  # Fired when QGIS is stable and ready
+    stability_verified = pyqtSignal()  # Legacy signal for compatibility
+    update_required = pyqtSignal()     # BETA 29: New signal for decoupled architecture
     
     def __init__(self, debounce_delay_ms=500, parent=None):
         super().__init__(parent)
@@ -116,7 +117,7 @@ class QGISChangeDebouncer(QObject):
         self.debounce_timer.setSingleShot(True)
         self.debounce_timer.timeout.connect(self._start_stability_verification)
         
-        print(f"[Beta26] Debouncer initialized with {debounce_delay_ms}ms delay")
+        print(f"[Beta29] Debouncer initialized with {debounce_delay_ms}ms delay and signal-based architecture")
     
     def signal_received(self):
         """Call this when ANY QGIS change signal is received"""
@@ -125,34 +126,24 @@ class QGISChangeDebouncer(QObject):
             self.debounce_timer.stop()
         
         self.debounce_timer.start(self.debounce_delay_ms)
-        print(f"[Beta26] Signal received - debounce timer reset")
+        print(f"[Beta29] Signal received - debounce timer reset")
     
     def _start_stability_verification(self):
-        """BETA 28: Called after debounce period - now attempt legend update directly"""
-        print(f"[Beta28] Debounce period complete - starting try-and-retry legend update")
+        """BETA 29: Called after debounce period - emit signal for decoupled architecture"""
+        print(f"[Beta29] Debounce period complete - emitting update_required signal")
         
-        # BETA 28: Skip verification, go straight to execution attempt
-        self.legend_executor.start_legend_update()
-    
-    def _on_legend_update_success(self):
-        """BETA 28: Called when legend update completed successfully"""
-        print(f"[Beta28] Legend update completed successfully!")
-        # Signal completion if needed
+        # BETA 29: Emit signal instead of direct call - clean separation of concerns
+        self.update_required.emit()
+        
+        # Legacy signal for backward compatibility
         self.stability_verified.emit()
-    
-    def _on_legend_update_failed(self, error_message):
-        """BETA 28: Called when legend update failed permanently"""
-        print(f"[Beta28] Legend update failed permanently: {error_message}")
-        # Could show user notification here if needed
-
 
 class LegendUpdateExecutor(QObject):
     """
-    BETA 28 "INTENTAR Y REPETIR" - Revolutionary Try-and-Retry Loop Architecture
+    BETA 29 "AISLAMIENTO Y SINCRONIZACIÓN" - Professional Try-and-Retry Engine
     
-    The verification IS the action. Instead of checking then acting, we attempt the complete 
-    legend update operation and simply retry if it fails. This eliminates the "vulnerability window" 
-    between verification and action.
+    Isolated execution engine that attempts complete legend updates with intelligent retry.
+    Connected via Qt signals for clean architectural separation.
     
     Architecture:
     1. DEBOUNCE: Wait for signal storm to settle (500ms)
@@ -176,7 +167,7 @@ class LegendUpdateExecutor(QObject):
         self.retry_timer.setSingleShot(True)
         self.retry_timer.timeout.connect(self._try_update_legend)
         
-        print(f"[Beta28] LegendUpdateExecutor initialized - max {max_retries} retries, {retry_interval_ms}ms intervals")
+        print(f"[Beta29] LegendUpdateExecutor initialized - max {max_retries} retries, {retry_interval_ms}ms intervals")
     
     def start_legend_update(self):
         """Initiate the try-and-retry legend update cycle"""
@@ -246,12 +237,18 @@ class LegendUpdateExecutor(QObject):
                             })
             
             # STEP 4: If we get here, symbol extraction succeeded!
-            # Now perform the actual legend update
-            if hasattr(self.parent_dialog, 'apply_legend') and legend_items:
+            # BETA 29: Only update legend if it's already visible (user must apply manually first time)
+            if (hasattr(self.parent_dialog, 'apply_legend') and 
+                hasattr(self.parent_dialog, 'legend_overlay') and 
+                self.parent_dialog.legend_overlay is not None and
+                legend_items):
+                print(f"[Beta29] Updating existing legend overlay...")
                 self.parent_dialog.apply_legend()
+            else:
+                print(f"[Beta29] Legend not yet applied by user - waiting for manual Apply click")
                 
             # SUCCESS! The complete operation completed without crashes
-            print(f"[Beta28] SUCCESS! Legend update completed on attempt #{self.current_retry_count + 1}")
+            print(f"[Beta29] SUCCESS! Legend update completed on attempt #{self.current_retry_count + 1}")
             self.current_retry_count = 0  # Reset for next cycle
             self.update_succeeded.emit()
             
@@ -289,7 +286,7 @@ class SymbolProcessingWorker(QObject):
         self.layer_ids_to_process = []
         
         # Beta 25: Symbol extractor with rendering separation
-        self.symbol_extractor = SymbolDataExtractor(debug_mode=True) if BETA28_MODULES_AVAILABLE else None
+        self.symbol_extractor = SymbolDataExtractor(debug_mode=True) if BETA29_MODULES_AVAILABLE else None
         self._processing_mutex = QMutex()
         
     def start_processing(self, layer_ids):
@@ -1324,16 +1321,26 @@ class CanvasLegendDockWidget(QDockWidget):
         self.closeEvent = self.custom_close_event
         
     def _initialize_beta27_components(self):
-        """Initialize Beta 26 debounce and stability verification system"""
+        """Initialize Beta 29 signal-based debounce + try-and-retry system"""
         try:
-            print("[Beta26] Initializing professional debounce + stability verification system...")
+            print("[Beta29] Initializing signal-based debounce + try-and-retry system...")
             
-            # Beta 26: Initialize the debouncer (500ms delay)
+            # BETA 29: Initialize the debouncer (500ms delay) 
             self._change_debouncer = QGISChangeDebouncer(debounce_delay_ms=500, parent=self)
-            self._change_debouncer.stability_verified.connect(self._on_stable_update_ready)
+            
+            # BETA 29: Initialize the legend executor (try-and-retry engine)
+            self._legend_executor = LegendUpdateExecutor(parent=self, max_retries=10, retry_interval_ms=200)
+            
+            # BETA 29: Connect debouncer signal to executor action (signal-based architecture)
+            self._change_debouncer.update_required.connect(self._legend_executor.start_legend_update)
+            self._change_debouncer.stability_verified.connect(self._on_stable_update_ready)  # Legacy compatibility
+            
+            # BETA 29: Connect executor signals to our handlers
+            self._legend_executor.update_succeeded.connect(self._on_legend_update_success)
+            self._legend_executor.update_failed_permanently.connect(self._on_legend_update_failed)
             
             # Initialize the old components for fallback
-            if BETA28_MODULES_AVAILABLE:
+            if BETA29_MODULES_AVAILABLE:
                 self._symbol_cache = SymbolCacheManager(max_cache_size=1000)
                 self._symbol_cache.cache_updated.connect(self._on_symbol_cache_updated)
                 self._symbol_extractor = SymbolDataExtractor(debug_mode=True)
@@ -1341,14 +1348,15 @@ class CanvasLegendDockWidget(QDockWidget):
                 self._symbol_cache = None
                 self._symbol_extractor = None
             
-            # Beta 26: Track if we're in the middle of an update cycle
+            # Beta 29: Track if we're in the middle of an update cycle
             self._update_in_progress = False
             
-            print("[Beta26] Debounce + stability verification system initialized successfully")
+            print("[Beta29] Signal-based debounce + try-and-retry system initialized successfully")
             
         except Exception as e:
-            print(f"[Beta26] Failed to initialize debounce system: {e}")
+            print(f"[Beta29] Failed to initialize signal-based system: {e}")
             self._change_debouncer = None
+            self._legend_executor = None
             self._symbol_cache = None
             self._symbol_extractor = None
             self._update_in_progress = False
@@ -1358,10 +1366,10 @@ class CanvasLegendDockWidget(QDockWidget):
     def _on_stable_update_ready(self):
         """Called when debouncer confirms QGIS is stable and ready for safe update"""
         if self._update_in_progress:
-            print("[Beta26] Update already in progress, skipping...")
+            print("[Beta29] Update already in progress, skipping...")
             return
         
-        print("[Beta26] QGIS confirmed stable - performing safe legend update")
+        print("[Beta29] QGIS confirmed stable - performing safe legend update")
         self._update_in_progress = True
         
         try:
@@ -1369,6 +1377,16 @@ class CanvasLegendDockWidget(QDockWidget):
             self._perform_safe_legend_update()
         finally:
             self._update_in_progress = False
+            
+    def _on_legend_update_success(self):
+        """BETA 29: Called when legend executor completes update successfully"""
+        print(f"[Beta29] Legend update completed successfully via try-and-retry engine!")
+        # Optional: Additional success handling here
+        
+    def _on_legend_update_failed(self, error_message):
+        """BETA 29: Called when legend executor fails permanently"""
+        print(f"[Beta29] Legend update failed permanently: {error_message}")
+        # Optional: Show user notification or fallback to manual mode
     
     def _perform_safe_legend_update(self):
         """Perform legend update safely when QGIS is confirmed stable"""

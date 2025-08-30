@@ -2,7 +2,7 @@
 name=ArcadiaCanvasLegend
 qgisMinimumVersion=3.22
 description=Canvas Legend Overlay - Part of Arcadia Suite. Display customizable legends overlaid on the QGIS canvas with full style control and export capabilities.
-version=1.0.28
+version=1.0.29
 author=Arcadia Suite Development Team
 email=info@arcadiasuite.com
 about=This plugin allows users to display and configure map legends overlay on the QGIS canvas. Features include position and style configuration, text formatting options, background and frame customization, canvas-to-composition conversion, and export to clipboard or PNG. Part of the comprehensive Arcadia Suite for QGIS.
@@ -17,6 +17,17 @@ experimental=False
 deprecated=False
 server=False
 changelog=
+    1.0.29: BETA 29 - "AISLAMIENTO Y SINCRONIZACIÓN" Professional Signal-Based Architecture
+    - CRITICAL FIX: Corrected AttributeError 'QGISChangeDebouncer' object has no attribute 'legend_executor'
+    - Implemented proper Qt signals/slots pattern for clean component separation
+    - Added update_required signal to QGISChangeDebouncer for decoupled architecture  
+    - Initialized LegendUpdateExecutor in CanvasLegendDockWidget with proper signal connections
+    - Signal-based communication: debouncer.update_required -> executor.start_legend_update()
+    - Added success/failure handlers _on_legend_update_success() and _on_legend_update_failed()
+    - Manual legend activation: Legend only updates automatically if already applied by user
+    - Eliminated direct object references between components for better maintainability
+    - Professional architecture pattern prevents AttributeError crashes that disabled crash protection
+    - Beta 29 restores full try-and-retry functionality that was broken by initialization bug
     1.0.28: BETA 28 - "INTENTAR Y REPETIR" Revolutionary Try-and-Retry Loop Architecture
     - REVOLUTIONARY PARADIGM SHIFT: Eliminates verification-then-action approach that caused "vulnerability window" crashes
     - Implemented LegendUpdateExecutor: Complete legend update operation wrapped in try-catch with intelligent retry

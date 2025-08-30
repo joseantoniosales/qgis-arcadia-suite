@@ -2,7 +2,7 @@
 name=ArcadiaCanvasLegend
 qgisMinimumVersion=3.22
 description=Canvas Legend Overlay - Part of Arcadia Suite. Display customizable legends overlaid on the QGIS canvas with full style control and export capabilities.
-version=1.0.26
+version=1.0.27
 author=Arcadia Suite Development Team
 email=info@arcadiasuite.com
 about=This plugin allows users to display and configure map legends overlay on the QGIS canvas. Features include position and style configuration, text formatting options, background and frame customization, canvas-to-composition conversion, and export to clipboard or PNG. Part of the comprehensive Arcadia Suite for QGIS.
@@ -17,6 +17,15 @@ experimental=False
 deprecated=False
 server=False
 changelog=
+    1.0.27: BETA 27 - Enhanced Raster Stability Verification + Individual Layer Signal Management
+    - Enhanced QGIS stability verification with raster-specific deep checks for pseudocolor, multiband, and paletted renderers
+    - Critical fix: Stability checker now verifies raster renderer internal state (colorRampItemList access) before allowing updates
+    - Individual layer signal connections: Each layer's styleChanged signal connected to debouncer for reliable QML detection
+    - Automatic reconnection system: New layers automatically get individual signal connections via _on_layers_added_reconnect
+    - Solves QML loading detection issue: Direct layer.styleChanged signals catch style changes missed by project-level signals
+    - Raster crash protection: Deep verification prevents crashes during pseudocolor statistics calculation and band processing
+    - Professional signal management: Disconnect-before-connect pattern prevents double signal connections
+    - Complete coverage: All layer style changes now detected through either project-level or individual layer signals
     1.0.26: BETA 26 - "ESPERAR, VERIFICAR Y ACTUAR" Professional Signal Handling with Debounce + Stability Verification
     - Revolutionary paradigm shift from "immediate signal reaction" to professional debounce + stability verification patterns
     - Implemented QGISChangeDebouncer class with intelligent 500ms debounce timing to prevent signal storms

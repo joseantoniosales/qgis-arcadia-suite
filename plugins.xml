@@ -17,10 +17,10 @@
         <deprecated>False</deprecated>
         <server>False</server>
     </pyqgis_plugin>
-    <pyqgis_plugin name="ArcadiaCanvasLegend" version="1.0.26">
+    <pyqgis_plugin name="ArcadiaCanvasLegend" version="1.0.27">
         <description>Canvas Legend Overlay - Part of Arcadia Suite. Display customizable legends overlaid on the QGIS canvas with full style control and export capabilities.</description>
         <about>This plugin allows users to display and configure map legends overlay on the QGIS canvas. Features include position and style configuration, text formatting options, background and frame customization, canvas-to-composition conversion, and export to clipboard or PNG. Part of the comprehensive Arcadia Suite for QGIS.</about>
-        <version>1.0.26</version>
+        <version>1.0.27</version>
         <qgis_minimum_version>3.22</qgis_minimum_version>
         <author_name>joseantoniosales@gmail.com</author_name>
         <email>jasales.gis@gmail.com</email>

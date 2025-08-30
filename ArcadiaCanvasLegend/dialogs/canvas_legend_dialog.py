@@ -1,6 +1,6 @@
 """
 Dialog for configuring canvas legend overlay
-BETA 26 "ESPERAR, VERIFICAR Y ACTUAR" - Ultimate Stability Strategy
+BETA 27 "ESPERAR, VERIFICAR Y ACTUAR" + Enhanced Raster Stability + Individual Layer Signals
 Implements professional-grade debounce + stability verification + delayed action pattern
 """
 
@@ -14,24 +14,24 @@ from qgis.PyQt.QtGui import QFont, QPixmap, QPainter, QColor, QPen
 from qgis.core import (QgsProject, QgsLayoutExporter, QgsLayoutItemMap, 
                       QgsLayoutItemLegend, QgsPrintLayout, QgsLayoutPoint,
                       QgsLayoutSize, QgsUnitTypes, QgsSymbolLayerUtils,
-                      QgsRenderContext, QgsMapSettings)
+                      QgsRenderContext, QgsMapSettings, QgsMapLayer)
 from qgis.gui import QgsColorButton, QgsFontButton
 
 import os
 from ..utils import get_arcadia_setting, set_arcadia_setting
 
 # PLUGIN VERSION CONTROL - Single source of truth
-PLUGIN_VERSION = "1.0.26"
+PLUGIN_VERSION = "1.0.27"
 PLUGIN_VERSION_NAME = "Beta 26"
 
 # BETA 26: Import debounce and stability verification modules
 try:
     from ..tools.symbol_cache_manager import SymbolCacheManager
     from ..tools.symbol_data_extractor import SymbolDataExtractor, LayerSymbolInfo
-    BETA26_MODULES_AVAILABLE = True
+    BETA27_MODULES_AVAILABLE = True
 except ImportError as e:
-    print(f"BETA 26: Failed to import new modules: {e}")
-    BETA26_MODULES_AVAILABLE = False
+    print(f"BETA 27: Failed to import new modules: {e}")
+    BETA27_MODULES_AVAILABLE = False
 
 
 # BETA 23: Layer Stability Verification System
@@ -189,11 +189,35 @@ class QGISStabilityChecker(QObject):
                 _ = layer.name()
                 _ = layer.isValid()
                 
-                # Test renderer access (most likely to fail during style changes)
+                # BETA 26.1: Enhanced stability verification with raster-specific checks
                 if hasattr(layer, 'renderer'):
                     renderer = layer.renderer()
                     if renderer:
                         _ = renderer.type()
+                        
+                        # CRITICAL: Special deep verification for raster layers
+                        if layer.type() == QgsMapLayer.RasterLayer:
+                            # Raster renderers are more volatile - need deeper verification
+                            if renderer.type() == 'singlebandpseudocolor':
+                                # Most crash-prone: pseudocolor rasters during statistics calculation
+                                shader = renderer.shader()
+                                if shader and hasattr(shader, 'rasterShaderFunction'):
+                                    ramp_function = shader.rasterShaderFunction()
+                                    if ramp_function and hasattr(ramp_function, 'colorRampItemList'):
+                                        # The critical test: access color ramp items safely
+                                        _ = ramp_function.colorRampItemList()
+                                        print(f"[Beta26.1] Raster pseudocolor stability verified for {layer.name()}")
+                            elif renderer.type() == 'multibandcolor':
+                                # Verify multiband renderer stability
+                                _ = renderer.redBand()
+                                _ = renderer.greenBand() 
+                                _ = renderer.blueBand()
+                                print(f"[Beta26.1] Raster multiband stability verified for {layer.name()}")
+                            elif renderer.type() == 'paletted':
+                                # Verify paletted renderer stability
+                                _ = renderer.band()
+                                print(f"[Beta26.1] Raster paletted stability verified for {layer.name()}")
+                            # Add other raster renderer types as needed
             
             # If we reach here, QGIS is stable
             self.consecutive_stable_checks += 1
@@ -228,7 +252,7 @@ class SymbolProcessingWorker(QObject):
         self.layer_ids_to_process = []
         
         # Beta 25: Symbol extractor with rendering separation
-        self.symbol_extractor = SymbolDataExtractor(debug_mode=True) if BETA26_MODULES_AVAILABLE else None
+        self.symbol_extractor = SymbolDataExtractor(debug_mode=True) if BETA27_MODULES_AVAILABLE else None
         self._processing_mutex = QMutex()
         
     def start_processing(self, layer_ids):
@@ -1241,7 +1265,7 @@ class CanvasLegendDockWidget(QDockWidget):
         self._properties_dialog_open = False
         
         # BETA 26: Initialize debounce and stability verification components
-        self._initialize_beta26_components()
+        self._initialize_beta27_components()
         
         # BETA 23: Initialize asynchronous stability verification system
         self._initialize_beta23_components()
@@ -1262,7 +1286,7 @@ class CanvasLegendDockWidget(QDockWidget):
         # Connect close event to cleanup
         self.closeEvent = self.custom_close_event
         
-    def _initialize_beta26_components(self):
+    def _initialize_beta27_components(self):
         """Initialize Beta 26 debounce and stability verification system"""
         try:
             print("[Beta26] Initializing professional debounce + stability verification system...")
@@ -1272,7 +1296,7 @@ class CanvasLegendDockWidget(QDockWidget):
             self._change_debouncer.stability_verified.connect(self._on_stable_update_ready)
             
             # Initialize the old components for fallback
-            if BETA26_MODULES_AVAILABLE:
+            if BETA27_MODULES_AVAILABLE:
                 self._symbol_cache = SymbolCacheManager(max_cache_size=1000)
                 self._symbol_cache.cache_updated.connect(self._on_symbol_cache_updated)
                 self._symbol_extractor = SymbolDataExtractor(debug_mode=True)
@@ -1596,6 +1620,9 @@ class CanvasLegendDockWidget(QDockWidget):
                 QgsProject.instance().layersAdded.connect(self._change_debouncer.signal_received)
                 QgsProject.instance().layersRemoved.connect(self._change_debouncer.signal_received)
                 
+                # BETA 26.1: CRITICAL - Connect to layersAdded for individual signal management
+                QgsProject.instance().layersAdded.connect(self._on_layers_added_reconnect)
+                
                 # CRITICAL: Connect to layer style changes through debouncer
                 QgsProject.instance().layerStyleChanged.connect(self._change_debouncer.signal_received)
                 
@@ -1621,16 +1648,41 @@ class CanvasLegendDockWidget(QDockWidget):
             self.debug_print(f"BETA 26: Error connecting layer signals: {e}")
             
     def connect_existing_layer_signals(self):
-        """Connect to existing layers' individual signals - BETA 26: Through debouncer"""
+        """Connect to existing layers' individual signals - BETA 26.1: Enhanced individual connections"""
         try:
             if hasattr(self, '_change_debouncer'):
-                # BETA 26: Connect existing layer signals through debouncer
+                # BETA 26.1: Enhanced connection to individual layer signals through debouncer
+                self.debug_print("BETA 26.1: Connecting to individual layer styleChanged signals...")
+                
                 for layer in QgsProject.instance().mapLayers().values():
-                    if hasattr(layer, 'rendererChanged'):
-                        layer.rendererChanged.connect(self._change_debouncer.signal_received)
-                    if hasattr(layer, 'styleChanged'):
+                    try:
+                        # BETA 26.1: CRITICAL - Connect to styleChanged signal of each layer
+                        # This catches style changes that project-level signals might miss
+                        # (like loading QML files from layer properties dialog)
+                        
+                        # Disconnect first to avoid double connections
+                        try:
+                            layer.styleChanged.disconnect(self._change_debouncer.signal_received)
+                        except (TypeError, RuntimeError):
+                            pass  # Was not connected, that's fine
+                        
+                        # Connect to debouncer for professional signal handling
                         layer.styleChanged.connect(self._change_debouncer.signal_received)
-                self.debug_print("BETA 26: Existing layer signals connected through debouncer")
+                        
+                        # Also connect renderer changes
+                        if hasattr(layer, 'rendererChanged'):
+                            try:
+                                layer.rendererChanged.disconnect(self._change_debouncer.signal_received)
+                            except (TypeError, RuntimeError):
+                                pass
+                            layer.rendererChanged.connect(self._change_debouncer.signal_received)
+                            
+                        self.debug_print(f"BETA 26.1: Connected individual signals for layer: {layer.name()}")
+                        
+                    except Exception as e:
+                        self.debug_print(f"BETA 26.1: Error connecting signals for layer {layer.name()}: {e}")
+                        
+                self.debug_print("BETA 26.1: Individual layer signal connections completed")
             else:
                 # Fallback to direct connections
                 for layer in QgsProject.instance().mapLayers().values():
@@ -1639,7 +1691,30 @@ class CanvasLegendDockWidget(QDockWidget):
                     if hasattr(layer, 'styleChanged'):
                         layer.styleChanged.connect(self.on_renderer_changed)
         except Exception as e:
-            self.debug_print(f"BETA 26: Error connecting existing layer signals: {e}")
+            self.debug_print(f"BETA 26.1: Error connecting existing layer signals: {e}")
+    
+    def _on_layers_added_reconnect(self, layers):
+        """Called when new layers are added - reconnect individual signals"""
+        try:
+            self.debug_print(f"BETA 26.1: New layers added - reconnecting individual signals for {len(layers)} layers")
+            
+            # Reconnect signals for newly added layers
+            for layer in layers:
+                try:
+                    # Connect styleChanged signal (most important for QML loading detection)
+                    layer.styleChanged.connect(self._change_debouncer.signal_received)
+                    
+                    # Connect rendererChanged if available
+                    if hasattr(layer, 'rendererChanged'):
+                        layer.rendererChanged.connect(self._change_debouncer.signal_received)
+                        
+                    self.debug_print(f"BETA 26.1: Connected individual signals for new layer: {layer.name()}")
+                    
+                except Exception as e:
+                    self.debug_print(f"BETA 26.1: Error connecting signals for new layer {layer.name()}: {e}")
+                    
+        except Exception as e:
+            self.debug_print(f"BETA 26.1: Error in _on_layers_added_reconnect: {e}")
             
     def on_renderer_changed(self):
         """Handle renderer/symbology changes - BETA 23: Asynchronous stability verification"""
